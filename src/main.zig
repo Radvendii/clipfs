@@ -1,11 +1,17 @@
 const std = @import("std");
-const c = @import("c.zig");
+const x = @import("x11.zig");
 
 pub fn main() !void {
-    const dpy: *c.Display = c.XOpenDisplay(null) orelse return error.NoDisplay;
-    const screen: c_int = c.DefaultScreen(dpy);
-    const root: c.Window = c.RootWindow(dpy, screen);
+    const dpy = try x.Display.open(null);
+    // XXX: what do we do if close() errors?
+    defer dpy.close() catch unreachable;
 
-    const owner: c_ulong = c.XCreateSimpleWindow(dpy, root, -10, -10, 1, 1, 0, 0, 0);
-    _ = owner; // autofix
+    const screen = dpy.defaultScreen();
+
+    const root = screen.rootWindow();
+
+    // dummy window to receive messages from the client that wants the clipboard
+    // XXX: the tutorial positions the window at -10, -10, but the function takes an unsigned value...
+    const owner = try root.createSimpleWindow(1, 1, 1, 1, 0, 0, 0);
+    defer owner.destroy() catch unreachable;
 }
