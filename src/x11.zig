@@ -1,5 +1,10 @@
 pub const c = @import("c.zig");
 
+pub const Atom = struct {
+    raw: c.Atom,
+    pub const None = c.None;
+};
+
 pub const Display = struct {
     raw: *c.Display,
 
@@ -17,6 +22,15 @@ pub const Display = struct {
             .dpy = dpy,
             .raw = c.DefaultScreen(dpy.raw),
         };
+    }
+    pub fn internAtom(dpy: Display, atom_name: [:0]const u8, only_if_exists: bool) !Atom {
+        switch (c.XInternAtom(dpy.raw, atom_name.ptr, @intCast(@intFromBool(only_if_exists)))) {
+            c.BadAlloc => return error.BadAlloc,
+            c.BadValue => return error.BadValue,
+            // XXX: do we want this to be an error, or a valid return?
+            c.None => return error.None,
+            else => |atom| return .{ .raw = atom },
+        }
     }
 };
 
