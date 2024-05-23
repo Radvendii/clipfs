@@ -29,6 +29,7 @@ pub const Screen = struct {
         return .{ .dpy = screen.dpy, .raw = c.RootWindow(screen.dpy.raw, screen.raw) };
     }
 };
+
 pub const Window = struct {
     dpy: Display,
     raw: c.Window,
@@ -72,5 +73,26 @@ pub const Window = struct {
             .dpy = parent.dpy,
             .raw = raw,
         };
+    }
+
+    pub fn map(win: Window) !void {
+        switch (c.XMapWindow(win.dpy.raw, win.raw)) {
+            c.BadWindow => return error.BadWindow,
+            else => {},
+        }
+    }
+
+    pub fn mapRaised(win: Window) !void {
+        switch (c.XMapRaised(win.dpy.raw, win.raw)) {
+            c.BadWindow => return error.BadWindow,
+            else => {},
+        }
+    }
+
+    pub fn mapSubwindows(win: Window) !void {
+        switch (c.XMapSubwindows(win.dpy.raw, win.raw)) {
+            c.BadWindow => return error.BadWindow,
+            else => {},
+        }
     }
 };
