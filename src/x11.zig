@@ -14,6 +14,8 @@ pub const c = @import("c.zig");
 //  }
 // I'm still not decided which syntax I like better. checkErrors() is kind of messy and less readable, but also less error prone and repetitive
 // I suspect this is a problem I will keep coming back to with comptime
+// other design: check against all possible errors, and then process afterwards. possibly panicing if it's an error we should get.
+// ideal interface would be if we could define the possible errors in the return type, and then refer to that to do the error checking
 fn checkErrors(val: anytype, comptime errorset: type) errorset!@TypeOf(val) {
     switch (@typeInfo(errorset)) {
         .ErrorSet => |_errs| {
@@ -85,6 +87,12 @@ pub const Display = struct {
             error{ BadAlloc, BadValue, None },
         );
         return .{ .raw = atom };
+    }
+    // XXX: dilema: i want nice union(enum) syntax, but then you have to do an expensive conversion from the c.Event
+    pub fn nextEvent(dpy: Display) c.XEvent {
+        var ev: c.XEvent = undefined;
+        _ = c.XNextEvent(dpy.raw, &ev);
+        return ev;
     }
 };
 
@@ -158,6 +166,14 @@ pub const Window = struct {
         _ = try checkErrors(
             c.XMapSubwindows(win.dpy.raw, win.raw),
             error{BadWindow},
+        );
+    }
+
+    pub fn setSelectionOwner(owner: Window, sel: Atom) !void {
+        // XXX: is there ever a reason to pass a value besides CurrentTime?
+        _ = try checkErrors(
+            c.XSetSelectionOwner(owner.dpy.raw, sel.raw, owner.raw, c.CurrentTime),
+            error{ BadAtom, BadWindow },
         );
     }
 };
