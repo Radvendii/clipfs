@@ -5,6 +5,7 @@ pub fn main() !void {
     const dpy = try x.Display.open(null);
     // XXX: what do we do if close() errors?
     defer dpy.close() catch unreachable;
+    x.DPY = dpy;
 
     const screen = dpy.defaultScreen();
 
@@ -20,6 +21,8 @@ pub fn main() !void {
     _ = utf8; // autofix
 
     try owner.setSelectionOwner(sel);
+
+    std.log.info("Took selection ownership\n", .{});
 
     while (true) {
         const ev = dpy.nextEvent();

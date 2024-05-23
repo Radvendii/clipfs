@@ -1,6 +1,13 @@
 const std = @import("std");
 pub const c = @import("c.zig");
 
+// The need to pass a display everywhere ruins any attmept I've made at a nice interface.
+// Most of the time, there will just be a single display operated on the whole program.
+// In the small remainder of cases, you can juggle the state yourself.
+// Turns out, OpenGL had the right state structure after all
+// And X11 is already not thread-safe.
+pub var DPY: Display = undefined;
+
 // x11 has a bunch of error codes e.g. c.BadAlloc, c.BadValue, etc.
 // this converts them all from c.Foo to error.Foo for a given set of error values possible
 // this could be cleaner with e.g. https://github.com/ziglang/zig/issues/12250
@@ -57,11 +64,14 @@ test {
 
 pub const Atom = struct {
     raw: c.Atom,
-    pub const None = c.None;
 };
 
 pub const Display = struct {
     raw: *c.Display,
+
+    pub fn use(dpy: Display) void {
+        DPY = dpy;
+    }
 
     pub fn open(display_name: ?[]const u8) !Display {
         const raw = c.XOpenDisplay(@ptrCast(display_name)) orelse return error.NoDisplay;
@@ -75,10 +85,7 @@ pub const Display = struct {
     }
 
     pub fn defaultScreen(dpy: Display) Screen {
-        return .{
-            .dpy = dpy,
-            .raw = c.DefaultScreen(dpy.raw),
-        };
+        return .{ .raw = c.DefaultScreen(dpy.raw) };
     }
     pub fn internAtom(dpy: Display, atom_name: [:0]const u8, only_if_exists: bool) !Atom {
         const maybe_atom = c.XInternAtom(dpy.raw, atom_name.ptr, @intCast(@intFromBool(only_if_exists)));
@@ -98,23 +105,21 @@ pub const Display = struct {
 
 // XXX: should this just be an enum? less convenient but more true to the C
 pub const Screen = struct {
-    dpy: Display,
     raw: c_int,
 
     pub fn rootWindow(screen: Screen) Window {
-        return .{ .dpy = screen.dpy, .raw = c.RootWindow(screen.dpy.raw, screen.raw) };
+        return .{ .raw = c.RootWindow(DPY.raw, screen.raw) };
     }
 };
 
 pub const Window = struct {
-    dpy: Display,
     raw: c.Window,
 
     pub fn destroy(win: Window) !void {
-        switch (c.XDestroyWindow(win.dpy.raw, win.raw)) {
-            c.BadWindow => return error.BadWindow,
-            else => {},
-        }
+        _ = try checkErrors(
+            c.XDestroyWindow(DPY.raw, win.raw),
+            error{BadWindow},
+        );
     }
 
     pub fn createSimpleWindow(
@@ -128,7 +133,7 @@ pub const Window = struct {
         background: u64,
     ) !Window {
         const maybe_win = c.XCreateSimpleWindow(
-            parent.dpy.raw,
+            DPY.raw,
             parent.raw,
             @bitCast(x),
             @bitCast(y),
@@ -142,29 +147,26 @@ pub const Window = struct {
             maybe_win,
             error{ BadAlloc, BadMatch, BadValue, BadWindow },
         );
-        return .{
-            .dpy = parent.dpy,
-            .raw = win,
-        };
+        return .{ .raw = win };
     }
 
     pub fn map(win: Window) !void {
         _ = try checkErrors(
-            c.XMapWindow(win.dpy.raw, win.raw),
+            c.XMapWindow(DPY.raw, win.raw),
             error{BadWindow},
         );
     }
 
     pub fn mapRaised(win: Window) !void {
         _ = try checkErrors(
-            c.XMapRaised(win.dpy.raw, win.raw),
+            c.XMapRaised(DPY.raw, win.raw),
             error{BadWindow},
         );
     }
 
     pub fn mapSubwindows(win: Window) !void {
         _ = try checkErrors(
-            c.XMapSubwindows(win.dpy.raw, win.raw),
+            c.XMapSubwindows(DPY.raw, win.raw),
             error{BadWindow},
         );
     }
@@ -172,7 +174,7 @@ pub const Window = struct {
     pub fn setSelectionOwner(owner: Window, sel: Atom) !void {
         // XXX: is there ever a reason to pass a value besides CurrentTime?
         _ = try checkErrors(
-            c.XSetSelectionOwner(owner.dpy.raw, sel.raw, owner.raw, c.CurrentTime),
+            c.XSetSelectionOwner(DPY.raw, sel.raw, owner.raw, c.CurrentTime),
             error{ BadAtom, BadWindow },
         );
     }
