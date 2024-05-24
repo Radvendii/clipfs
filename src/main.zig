@@ -66,9 +66,9 @@ pub fn main() !void {
 
 fn reject(sev: x.Event.SelectionRequest) !void {
     {
-        const an = try x.getAtomName(sev.target);
-        defer x.free(an);
-        std.log.warn("denying request of type .{s}", .{an});
+        const target_n = try x.getAtomName(sev.target);
+        defer x.free(target_n);
+        std.log.warn("denying request of type .{s}", .{target_n});
     }
     const ssev = x.Event{ .selection = .{
         .type = .SelectionNotify,
@@ -83,9 +83,11 @@ fn reject(sev: x.Event.SelectionRequest) !void {
 }
 
 fn log_send(sev: x.Event.SelectionRequest) !void {
-    const an = try x.getAtomName(sev.property);
-    defer x.free(an);
-    std.log.info("Sending utf8 to window {x}, property '{s}'", .{ sev.requestor, an });
+    const property_n = try x.getAtomName(sev.property);
+    const target_n = try x.getAtomName(sev.target);
+    defer x.free(property_n);
+    defer x.free(target_n);
+    std.log.info("Sending {s} to window {x}, property '{s}'", .{ target_n, sev.requestor, property_n });
 }
 
 fn send_targets(sev: x.Event.SelectionRequest) !void {
@@ -97,6 +99,8 @@ fn send_targets(sev: x.Event.SelectionRequest) !void {
     };
 
     try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.TARGETS), .Replace, &data);
+
+    try response_sent(sev);
 }
 
 fn send_utf8(sev: x.Event.SelectionRequest) !void {
@@ -104,6 +108,10 @@ fn send_utf8(sev: x.Event.SelectionRequest) !void {
 
     try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.UTF8_STRING), .Replace, "hello, world");
 
+    try response_sent(sev);
+}
+
+fn response_sent(sev: x.Event.SelectionRequest) !void {
     const ssev = x.Event{ .selection = .{
         .type = .SelectionNotify,
         .requestor = sev.requestor,
@@ -113,5 +121,5 @@ fn send_utf8(sev: x.Event.SelectionRequest) !void {
         .time = sev.time,
     } };
 
-    return ssev.send(sev.requestor, true, x.Event.Mask{});
+    try ssev.send(sev.requestor, true, x.Event.Mask{});
 }
