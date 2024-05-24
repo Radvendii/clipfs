@@ -54,6 +54,17 @@ fn asInt(t: anytype) IntFromAny(@TypeOf(t)) {
     return asInt_helper(@TypeOf(t), IntFromAny(@TypeOf(t)), t);
 }
 
+fn ptrArrayLen(comptime T: type) usize {
+    const err_msg = "expected a pointer to a fixed-length array, not " ++ @typeName(T);
+    switch (@typeInfo(T)) {
+        else => @compileError(err_msg),
+        .Pointer => |ptr| switch (@typeInfo(ptr.child)) {
+            else => @compileError(err_msg),
+            .Array => |arr| return arr.len,
+        },
+    }
+}
+
 // x11 has a bunch of error codes e.g. c.BadAlloc, c.BadValue, etc.
 // this converts them all from c.Foo to error.Foo for a given set of error values possible
 // this could be cleaner with e.g. https://github.com/ziglang/zig/issues/12250
@@ -120,8 +131,12 @@ pub fn defaultScreen() ScreenNum {
 pub fn internAtom(atom_name: [:0]const u8, only_if_exists: bool) !Atom {
     return DPY.internAtom(atom_name, only_if_exists);
 }
-pub fn internAtoms(names: []const [*:0]const u8, only_if_exists: bool, atoms_return: []Atom) !void {
-    return DPY.internAtoms(names, only_if_exists, atoms_return);
+pub fn internAtoms(
+    // names: *const [N][:0]const u8
+    names: anytype,
+    only_if_exists: bool,
+) ![ptrArrayLen(@TypeOf(names))]Atom {
+    return DPY.internAtoms(names, only_if_exists);
 }
 pub fn nextEvent() Event {
     return DPY.nextEvent();
@@ -172,14 +187,29 @@ pub const Display = opaque {
         return @enumFromInt(atom);
     }
 
-    // XXX: i don't love taking in c-strings here.
-    // but to convert them, we either need an allocator or a comptime-known length as another argument.
-    pub fn internAtoms(dpy: *Display, names: []const [*:0]const u8, only_if_exists: bool, atoms_return: []Atom) !void {
-        std.debug.assert(names.len == atoms_return.len);
+    pub fn internAtoms(
+        dpy: *Display,
+        // names: *const [N][:0]const u8
+        names: anytype,
+        only_if_exists: bool,
+    ) ![ptrArrayLen(@TypeOf(names))]Atom {
+        const len = comptime ptrArrayLen(@TypeOf(names));
+        // typecheck
+        _ = @as(*const [len][:0]const u8, names);
+        var c_names: [len][*c]u8 = undefined;
+        {
+            for (&c_names, names) |*dst, src| {
+                dst.* = @constCast(src.ptr);
+            }
+        }
+        var atoms_return: [len]Atom = undefined;
+
         _ = try checkErrors(
-            c.XInternAtoms(dpy.raw(), @constCast(@ptrCast(names.ptr)), @intCast(names.len), @intFromBool(only_if_exists), @ptrCast(atoms_return)),
+            c.XInternAtoms(dpy.raw(), &c_names, @intCast(names.len), @intFromBool(only_if_exists), @ptrCast(&atoms_return)),
             error{ BadAlloc, BadValue },
         );
+
+        return atoms_return;
     }
 
     pub fn nextEvent(dpy: *Display) Event {
@@ -305,7 +335,7 @@ pub const Window = enum(c.Window) {
                         switch (ptr.size) {
                             // looking for `*const [N]child`
                             .One => {
-                                if (!ptr.is_const or ptr.is_allowzero or ptr.is_volatile) @compileError(errText);
+                                if (ptr.is_allowzero or ptr.is_volatile) @compileError(errText);
                                 switch (@typeInfo(ptr.child)) {
                                     .Array => |arr| break :child arr.child,
                                     else => @compileError(errText),
@@ -313,7 +343,7 @@ pub const Window = enum(c.Window) {
                             },
                             // looking for `[]const child` or `[*c]child`
                             .Slice, .C => {
-                                if (!ptr.is_const or ptr.is_allowzero or ptr.is_volatile) @compileError(errText);
+                                if (ptr.is_allowzero or ptr.is_volatile) @compileError(errText);
                                 break :child ptr.child;
                             },
                             // We must know how long the array is

@@ -7,14 +7,7 @@ const OurAtoms = enum {
     TARGETS,
 };
 const N_OUR_ATOMS = std.meta.fields(OurAtoms).len;
-const OUR_ATOM_NAMES: [N_OUR_ATOMS][*:0]const u8 = blk: {
-    var c_names: [N_OUR_ATOMS][*:0]const u8 = undefined;
-    const names = std.meta.fieldNames(OurAtoms);
-    for (&c_names, names) |*dst, src| {
-        dst.* = src.ptr;
-    }
-    break :blk c_names;
-};
+const OUR_ATOM_NAMES: *const [N_OUR_ATOMS][:0]const u8 = std.meta.fieldNames(OurAtoms);
 var OUR_ATOMS: [N_OUR_ATOMS]x.Atom = undefined;
 
 pub fn main() !void {
@@ -31,7 +24,7 @@ pub fn main() !void {
     const owner = try root.createSimpleWindow(1, 1, 1, 1, 0, 0, 0);
     defer owner.destroy() catch unreachable;
 
-    try x.internAtoms(&OUR_ATOM_NAMES, false, &OUR_ATOMS);
+    OUR_ATOMS = try x.internAtoms(OUR_ATOM_NAMES, false);
 
     const sel = OUR_ATOMS[@intFromEnum(OurAtoms.CLIPBOARD)];
     try owner.setSelectionOwner(sel);
