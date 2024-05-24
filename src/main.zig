@@ -44,7 +44,19 @@ pub fn main() !void {
                 if (sev.property == x.Atom.None) {
                     try reject(sev);
                 } else {
-                    try send(sev);
+                    if (sev.target == OUR_ATOMS.get(.UTF8_STRING)) {
+                        try send_utf8(sev);
+                    } else if (sev.target == OUR_ATOMS.get(.TARGETS)) {
+                        try send_targets(sev);
+                    } else {
+                        try reject(sev);
+                    }
+                    // can't switch on runtime values
+                    // switch (sev.target) {
+                    //     OUR_ATOMS.get(.UTF8_STRING) => try send_utf8(sev),
+                    //     OUR_ATOMS.get(.TARGETS) => try send_targets(sev),
+                    //     else => try reject(sev),
+                    // }
                 }
             },
             else => {},
@@ -70,12 +82,25 @@ fn reject(sev: x.Event.SelectionRequest) !void {
     return ssev.send(sev.requestor, true, x.Event.Mask{});
 }
 
-fn send(sev: x.Event.SelectionRequest) !void {
-    {
-        const an = try x.getAtomName(sev.property);
-        defer x.free(an);
-        std.log.info("Sending data to window {x}, property '{s}'", .{ sev.requestor, an });
-    }
+fn log_send(sev: x.Event.SelectionRequest) !void {
+    const an = try x.getAtomName(sev.property);
+    defer x.free(an);
+    std.log.info("Sending utf8 to window {x}, property '{s}'", .{ sev.requestor, an });
+}
+
+fn send_targets(sev: x.Event.SelectionRequest) !void {
+    try log_send(sev);
+
+    const data = [_]x.Atom{
+        OUR_ATOMS.get(.TARGETS),
+        OUR_ATOMS.get(.UTF8_STRING),
+    };
+
+    try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.TARGETS), .Replace, &data);
+}
+
+fn send_utf8(sev: x.Event.SelectionRequest) !void {
+    try log_send(sev);
 
     try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.UTF8_STRING), .Replace, "hello, world");
 
