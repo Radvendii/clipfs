@@ -258,23 +258,56 @@ pub const Window = enum(c.Window) {
         property: Atom,
         typ: Atom,
         mode: PropMode,
-        _format: type,
-        data: []const _format,
+        data: anytype,
     ) !void {
-        // const format: c_int = blk: {
-        //     const errText ="Window.changeProperty(): `data` must be `[]const` of either `u8`, `u16`, or `u32`. Got " ++ @typeName(@TypeOf(data));
-        //     switch (@TypeOf(data)) {
-        //         else => @compileError(errText),
-        //         .Pointer => |ptr| {
-        //             std.builtin.Type
-        //         }
-        //         // []const u8 => 8,
-        //         // []const u16 => 16,
-        //         // []const u32 => 32,
-        //         // else => @compileError(errText),
-        //     }
-        // };
-        const format = @typeInfo(_format).Int.bits;
+        const format: c_int = format: {
+            // really we want
+            // switch (@TypeOf(data)) {
+            //     []const u8 => 8,
+            //     []const u16 => 16,
+            //     []const u32 => 32,
+            // }
+            // but we have to account for various types that implicitly coerce, such as *const [N]u8 or [:0]const u16
+            // SEE: https://ziglang.org/documentation/master/#toc-Type-Coercion-Slices-Arrays-and-Pointers
+            // There should be some builtin to test if one type coerces to another, but alas.
+            const errText = @typeName(@TypeOf(data)) ++ " does not coerce to `[]const` of `u8`, `u16`, or `u32`.";
+            const child = child: {
+                switch (@typeInfo(@TypeOf(data))) {
+                    else => @compileError(errText),
+                    .Pointer => |ptr| {
+                        switch (ptr.size) {
+                            // looking for `*const [N]child`
+                            .One => {
+                                if (!ptr.is_const or ptr.is_allowzero or ptr.is_volatile) @compileError(errText);
+                                switch (@typeInfo(ptr.child)) {
+                                    .Array => |arr| break :child arr.child,
+                                    else => @compileError(errText),
+                                }
+                            },
+                            // looking for `[]const child` or `[*c]child`
+                            .Slice, .C => {
+                                if (!ptr.is_const or ptr.is_allowzero or ptr.is_volatile) @compileError(errText);
+                                break :child ptr.child;
+                            },
+                            // We must know how long the array is
+                            .Many => @compileError(errText),
+                        }
+                    },
+                }
+            };
+
+            // make sure this does actually coerce like we thought it would
+            // TODO: we could remove some of the checks above and rely on this instead
+            _ = @as([]const child, data);
+
+            switch (child) {
+                u8 => break :format 8,
+                u16 => break :format 16,
+                u32 => break :format 32,
+                else => @compileError(errText),
+            }
+        };
+
         _ = try checkErrors(
             c.XChangeProperty(
                 DPY.raw(),

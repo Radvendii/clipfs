@@ -66,7 +66,7 @@ fn send_utf8(sev: x.SelectionRequestEvent, utf8: x.Atom) !void {
     defer x.free(an);
     std.log.info("Sending data to window {x}, property '{s}'", .{ sev.requestor, an });
 
-    try sev.requestor.changeProperty(sev.property, utf8, .Replace, u8, "hello, world");
+    try sev.requestor.changeProperty(sev.property, utf8, .Replace, "hello, world");
 
     const ssev = x.Event{ .selection = .{
         .type = .SelectionNotify,
