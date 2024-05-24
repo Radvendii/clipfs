@@ -54,10 +54,12 @@ pub fn main() !void {
 }
 
 fn send_no(sev: x.SelectionRequestEvent) !void {
-    const an = try x.getAtomName(sev.target);
-    defer x.free(an);
-    std.log.warn("denying request of type .{s}", .{an});
 
+    {
+        const an = try x.getAtomName(sev.target);
+        defer x.free(an);
+        std.log.warn("denying request of type .{s}", .{an});
+    }
     const ssev = x.Event{ .selection = .{
         .type = .SelectionNotify,
         .requestor = sev.requestor,
@@ -70,10 +72,12 @@ fn send_no(sev: x.SelectionRequestEvent) !void {
     return ssev.send(sev.requestor, true, x.Event.Mask{});
 }
 
-    const an = try x.getAtomName(sev.property);
-    defer x.free(an);
-    std.log.info("Sending data to window {x}, property '{s}'", .{ sev.requestor, an });
 fn send_utf8(sev: x.Event.SelectionRequest, utf8: x.Atom) !void {
+    {
+        const an = try x.getAtomName(sev.property);
+        defer x.free(an);
+        std.log.info("Sending data to window {x}, property '{s}'", .{ sev.requestor, an });
+    }
 
     try sev.requestor.changeProperty(sev.property, OUR_ATOMS[@intFromEnum(OurAtoms.UTF8_STRING)], .Replace, "hello, world");
 
