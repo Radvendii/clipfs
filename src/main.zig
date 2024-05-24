@@ -58,13 +58,13 @@ fn send_no(sev: x.SelectionRequestEvent) !void {
         .time = sev.time,
     } };
 
-    return ssev.send(sev.requestor, true, x.EventMask{});
+    return ssev.send(sev.requestor, true, x.Event.Mask{});
 }
 
-fn send_utf8(sev: x.SelectionRequestEvent, utf8: x.Atom) !void {
     const an = try x.getAtomName(sev.property);
     defer x.free(an);
     std.log.info("Sending data to window {x}, property '{s}'", .{ sev.requestor, an });
+fn send_utf8(sev: x.Event.SelectionRequest, utf8: x.Atom) !void {
 
     try sev.requestor.changeProperty(sev.property, utf8, .Replace, "hello, world");
 
@@ -77,5 +77,5 @@ fn send_utf8(sev: x.SelectionRequestEvent, utf8: x.Atom) !void {
         .time = sev.time,
     } };
 
-    return ssev.send(sev.requestor, true, x.EventMask{});
+    return ssev.send(sev.requestor, true, x.Event.Mask{});
 }

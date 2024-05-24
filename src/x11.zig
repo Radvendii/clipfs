@@ -3,6 +3,8 @@
 const std = @import("std");
 pub const c = @import("c.zig");
 
+const Outer = @This();
+
 // The need to pass a display everywhere ruins any attmept I've made at a nice interface.
 // Most of the time, there will just be a single display operated on the whole program.
 // In the small remainder of cases, you can juggle the state yourself.
@@ -121,7 +123,7 @@ pub fn internAtom(atom_name: [:0]const u8, only_if_exists: bool) !Atom {
 pub fn nextEvent() Event {
     return DPY.nextEvent();
 }
-pub fn maskEvent(event_mask: EventMask) Event {
+pub fn maskEvent(event_mask: Event.Mask) Event {
     return DPY.maskEvent(event_mask);
 }
 pub fn getAtomName(a: Atom) ![*:0]u8 {
@@ -174,7 +176,7 @@ pub const Display = opaque {
     }
 
     // TODO: look at output assembly and see if RLS is applying to ev
-    pub fn maskEvent(dpy: *Display, event_mask: EventMask) Event {
+    pub fn maskEvent(dpy: *Display, event_mask: Event.Mask) Event {
         var ev: Event = undefined;
         _ = c.XMaskEvent(dpy.raw(), @bitCast(event_mask), @ptrCast(&ev));
         return ev;
@@ -344,121 +346,89 @@ pub const Window = enum(c.Window) {
     }
 };
 
-// TODO: consider renaming this. "mask" mostly makes sense in the C context
-// on the other hand, it is the name people would look under
-pub const EventMask = packed struct(c_long) {
-    key_press: bool = false,
-    key_release: bool = false,
-    button_press: bool = false,
-    button_release: bool = false,
-    enter_window: bool = false,
-    leave_window: bool = false,
-    pointer_motion: bool = false,
-    pointer_motion_hint: bool = false,
-    button1_motion: bool = false,
-    button2_motion: bool = false,
-    button3_motion: bool = false,
-    button4_motion: bool = false,
-    button5_motion: bool = false,
-    button_motion: bool = false,
-    keymap_state: bool = false,
-    exposure: bool = false,
-    visibility_change: bool = false,
-    structure_notify: bool = false,
-    resize_redirect: bool = false,
-    substructure_notify: bool = false,
-    substructure_redirect: bool = false,
-    focus_change: bool = false,
-    property_change: bool = false,
-    colormap_change: bool = false,
-    owner_grab_button: bool = false,
-
-    // XXX: magic number 25 is the number of fields before this
-    _padding: std.meta.Int(.unsigned, @bitSizeOf(c_long) - 25) = 0,
-};
-
+// XXX: does this go inside Event?
 pub const PropMode = enum(c_int) {
     Replace = c.PropModeReplace,
     Prepend = c.PropModePrepend,
     Append = c.PropModeAppend,
 };
 
-pub const EventTag = enum(c_int) {
-    KeyPress = c.KeyPress,
-    KeyRelease = c.KeyRelease,
-    ButtonPress = c.ButtonPress,
-    ButtonRelease = c.ButtonRelease,
-    MotionNotify = c.MotionNotify,
-    EnterNotify = c.EnterNotify,
-    LeaveNotify = c.LeaveNotify,
-    FocusIn = c.FocusIn,
-    FocusOut = c.FocusOut,
-    KeymapNotify = c.KeymapNotify,
-    Expose = c.Expose,
-    GraphicsExpose = c.GraphicsExpose,
-    NoExpose = c.NoExpose,
-    CirculateRequest = c.CirculateRequest,
-    ConfigureRequest = c.ConfigureRequest,
-    MapRequest = c.MapRequest,
-    ResizeRequest = c.ResizeRequest,
-    CirculateNotify = c.CirculateNotify,
-    ConfigureNotify = c.ConfigureNotify,
-    CreateNotify = c.CreateNotify,
-    DestroyNotify = c.DestroyNotify,
-    GravityNotify = c.GravityNotify,
-    MapNotify = c.MapNotify,
-    MappingNotify = c.MappingNotify,
-    ReparentNotify = c.ReparentNotify,
-    UnmapNotify = c.UnmapNotify,
-    VisibilityNotify = c.VisibilityNotify,
-    ColormapNotify = c.ColormapNotify,
-    ClientMessage = c.ClientMessage,
-    PropertyNotify = c.PropertyNotify,
-    SelectionClear = c.SelectionClear,
-    SelectionNotify = c.SelectionNotify,
-    SelectionRequest = c.SelectionRequest,
-};
-
 pub const Event = extern union {
-    type: EventTag,
-    any: AnyEvent,
-    key: KeyEvent,
-    button: ButtonEvent,
-    motion: MotionEvent,
-    crossing: CrossingEvent,
-    focus: FocusChangeEvent,
-    expose: ExposeEvent,
-    graphics_expose: GraphicsExposeEvent,
-    no_expose: NoExposeEvent,
-    visibility: VisibilityEvent,
-    create_window: CreateWindowEvent,
-    destroy_window: DestroyWindowEvent,
-    unmap: UnmapEvent,
-    map: MapEvent,
-    map_request: MapRequestEvent,
-    reparent: ReparentEvent,
-    configure: ConfigureEvent,
-    gravity: GravityEvent,
-    resize_request: ResizeRequestEvent,
-    configure_request: ConfigureRequestEvent,
-    circulate: CirculateEvent,
-    circulate_request: CirculateRequestEvent,
-    property: PropertyEvent,
-    selection_clear: SelectionClearEvent,
-    selection_request: SelectionRequestEvent,
-    selection: SelectionEvent,
-    colormap: ColormapEvent,
-    client: ClientMessageEvent,
-    mapping: MappingEvent,
+    pub const Tag = enum(c_int) {
+        KeyPress = c.KeyPress,
+        KeyRelease = c.KeyRelease,
+        ButtonPress = c.ButtonPress,
+        ButtonRelease = c.ButtonRelease,
+        MotionNotify = c.MotionNotify,
+        EnterNotify = c.EnterNotify,
+        LeaveNotify = c.LeaveNotify,
+        FocusIn = c.FocusIn,
+        FocusOut = c.FocusOut,
+        KeymapNotify = c.KeymapNotify,
+        Expose = c.Expose,
+        GraphicsExpose = c.GraphicsExpose,
+        NoExpose = c.NoExpose,
+        CirculateRequest = c.CirculateRequest,
+        ConfigureRequest = c.ConfigureRequest,
+        MapRequest = c.MapRequest,
+        ResizeRequest = c.ResizeRequest,
+        CirculateNotify = c.CirculateNotify,
+        ConfigureNotify = c.ConfigureNotify,
+        CreateNotify = c.CreateNotify,
+        DestroyNotify = c.DestroyNotify,
+        GravityNotify = c.GravityNotify,
+        MapNotify = c.MapNotify,
+        MappingNotify = c.MappingNotify,
+        ReparentNotify = c.ReparentNotify,
+        UnmapNotify = c.UnmapNotify,
+        VisibilityNotify = c.VisibilityNotify,
+        ColormapNotify = c.ColormapNotify,
+        ClientMessage = c.ClientMessage,
+        PropertyNotify = c.PropertyNotify,
+        SelectionClear = c.SelectionClear,
+        SelectionNotify = c.SelectionNotify,
+        SelectionRequest = c.SelectionRequest,
+    };
+
+    type: Tag,
+    any: Any,
+    key: Key,
+    button: Button,
+    motion: Motion,
+    crossing: Crossing,
+    focus: FocusChange,
+    expose: Expose,
+    graphics_expose: GraphicsExpose,
+    no_expose: NoExpose,
+    visibility: Visibility,
+    create_window: CreateWindow,
+    destroy_window: DestroyWindow,
+    unmap: Unmap,
+    map: Map,
+    map_request: MapRequest,
+    reparent: Reparent,
+    configure: Configure,
+    gravity: Gravity,
+    resize_request: ResizeRequest,
+    configure_request: ConfigureRequest,
+    circulate: Circulate,
+    circulate_request: CirculateRequest,
+    property: Property,
+    selection_clear: SelectionClear,
+    selection_request: SelectionRequest,
+    selection: Selection,
+    colormap: Event.Colormap,
+    client: ClientMessage,
+    mapping: Mapping,
     // error is a reserved keyword
-    @"error": ErrorEvent,
-    keymap: KeymapEvent,
-    generic: GenericEvent,
-    cookie: GenericEventCookie,
+    @"error": Error,
+    keymap: Keymap,
+    generic: Generic,
+    cookie: GenericEventC,
 
     _pad: [24]c_long,
 
-    pub fn send(event: *const Event, dest: Window, propagate: bool, event_mask: EventMask) !void {
+    pub fn send(event: *const Event, dest: Window, propagate: bool, event_mask: Mask) !void {
         // @ptrCast() is legal because we've made them have the same bit layout
         // @constCast() is legal because XSendEvent does not modify the event passed in
         const c_event = @as(*c.XEvent, @constCast(@ptrCast(event)));
@@ -468,6 +438,424 @@ pub const Event = extern union {
         );
         if (ret == 0) return error.WireProtocolConversionFailed;
     }
+    // TODO: consider renaming this. "mask" mostly makes sense in the C context
+    // on the other hand, it is the name people would look under
+    pub const Mask = packed struct(c_long) {
+        key_press: bool = false,
+        key_release: bool = false,
+        button_press: bool = false,
+        button_release: bool = false,
+        enter_window: bool = false,
+        leave_window: bool = false,
+        pointer_motion: bool = false,
+        pointer_motion_hint: bool = false,
+        button1_motion: bool = false,
+        button2_motion: bool = false,
+        button3_motion: bool = false,
+        button4_motion: bool = false,
+        button5_motion: bool = false,
+        button_motion: bool = false,
+        keymap_state: bool = false,
+        exposure: bool = false,
+        visibility_change: bool = false,
+        structure_notify: bool = false,
+        resize_redirect: bool = false,
+        substructure_notify: bool = false,
+        substructure_redirect: bool = false,
+        focus_change: bool = false,
+        property_change: bool = false,
+        colormap_change: bool = false,
+        owner_grab_button: bool = false,
+
+        // XXX: magic number 25 is the number of fields before this
+        _padding: std.meta.Int(.unsigned, @bitSizeOf(c_long) - 25) = 0,
+    };
+
+    // TODO: could I make `type` have appropriate defaults in the different sub-structs?
+    // problem: e.g. KeyEvent could be KeyPressed or KeyReleased
+    pub const Key = extern struct {
+        type: Tag,
+        // TODO: is this something we can give a more meaningful type to?
+        // undefined because these get ignored by XSendEvent, so we don't need to bother setting them
+        // but we want error checking on not setting them and then accessing (at least in debug mode)
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        root: Window,
+        subwindow: Window,
+        time: Time,
+        x: c_int,
+        y: c_int,
+        x_root: c_int,
+        y_root: c_int,
+        state: ModifierState,
+        // TODO: put a function to convert to keysym as a method
+        keycode: c_uint,
+        same_screen: c_bool,
+    };
+    pub const KeyPressed = Key;
+    pub const KeyReleased = Key;
+    pub const Button = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        root: Window,
+        subwindow: Window,
+        time: Time,
+        x: c_int,
+        y: c_int,
+        x_root: c_int,
+        y_root: c_int,
+        state: ModifierState,
+        button: c_uint,
+        same_screen: c_bool,
+    };
+    pub const ButtonPressed = Button;
+    pub const ButtonReleased = Button;
+    pub const Motion = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        root: Window,
+        subwindow: Window,
+        time: Time,
+        x: c_int,
+        y: c_int,
+        x_root: c_int,
+        y_root: c_int,
+        state: ModifierState,
+        is_hint: IsHint,
+        same_screen: c_int,
+    };
+    pub const PointerMoved = Motion;
+
+    // TODO: beyond this point conversions unfinished
+    pub const Crossing = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        root: Window,
+        subwindow: Window,
+        time: Time,
+        x: c_int,
+        y: c_int,
+        x_root: c_int,
+        y_root: c_int,
+        mode: c_int,
+        detail: c_int,
+        same_screen: c_int,
+        focus: c_int,
+        state: c_uint,
+    };
+    pub const EnterWindow = Crossing;
+    pub const LeaveWindow = Crossing;
+    pub const FocusChange = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        mode: c_int,
+        detail: c_int,
+    };
+    pub const FocusIn = FocusChange;
+    pub const FocusOut = FocusChange;
+    pub const Keymap = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        key_vector: [32]u8,
+    };
+    pub const Expose = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        count: c_int,
+    };
+    pub const GraphicsExpose = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        drawable: Drawable,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        count: c_int,
+        major_code: c_int,
+        minor_code: c_int,
+    };
+    pub const NoExpose = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        drawable: Drawable,
+        major_code: c_int,
+        minor_code: c_int,
+    };
+    pub const Visibility = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        state: c_int,
+    };
+    pub const CreateWindow = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        parent: Window,
+        window: Window,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        border_width: c_int,
+        override_redirect: c_int,
+    };
+    pub const DestroyWindow = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        event: Window,
+        window: Window,
+    };
+    pub const Unmap = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        event: Window,
+        window: Window,
+        from_configure: c_int,
+    };
+    pub const Map = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        event: Window,
+        window: Window,
+        override_redirect: c_int,
+    };
+    pub const MapRequest = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        parent: Window,
+        window: Window,
+    };
+    pub const Reparent = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        event: Window,
+        window: Window,
+        parent: Window,
+        x: c_int,
+        y: c_int,
+        override_redirect: c_int,
+    };
+    pub const Configure = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        event: Window,
+        window: Window,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        border_width: c_int,
+        above: Window,
+        override_redirect: c_int,
+    };
+    pub const Gravity = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        event: Window,
+        window: Window,
+        x: c_int,
+        y: c_int,
+    };
+    pub const ResizeRequest = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        width: c_int,
+        height: c_int,
+    };
+    pub const ConfigureRequest = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        parent: Window,
+        window: Window,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        border_width: c_int,
+        above: Window,
+        detail: c_int,
+        value_mask: c_ulong,
+    };
+    pub const Circulate = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        event: Window,
+        window: Window,
+        place: c_int,
+    };
+    pub const CirculateRequest = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        parent: Window,
+        window: Window,
+        place: c_int,
+    };
+    pub const Property = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        atom: Atom,
+        time: Time,
+        state: c_int,
+    };
+    pub const SelectionClear = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        selection: Atom,
+        time: Time,
+    };
+    pub const SelectionRequest = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        owner: Window,
+        requestor: Window,
+        selection: Atom,
+        target: Atom,
+        property: Atom,
+        time: Time,
+    };
+    pub const Selection = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        requestor: Window,
+        selection: Atom,
+        target: Atom,
+        property: Atom,
+        time: Time,
+    };
+    pub const Colormap = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        colormap: Outer.Colormap,
+        new: c_int,
+        state: c_int,
+    };
+    pub const ClientMessage = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        message_type: Atom,
+        format: c_int,
+        data: extern union {
+            b: [20]u8,
+            s: [10]c_short,
+            l: [5]c_long,
+        },
+    };
+    pub const Mapping = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+        request: c_int,
+        first_keycode: c_int,
+        count: c_int,
+    };
+    pub const Error = extern struct {
+        type: Tag,
+        display: *Display = undefined,
+        resourceid: ID,
+        serial: c_ulong = undefined,
+        error_code: u8,
+        request_code: u8,
+        minor_code: u8,
+    };
+    pub const Any = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        window: Window,
+    };
+    pub const Generic = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        extension: c_int,
+        evtype: Tag,
+    };
+    pub const GenericEventC = extern struct {
+        type: Tag,
+        serial: c_ulong = undefined,
+        send_event: c_bool = undefined,
+        display: *Display = undefined,
+        extension: c_int,
+        evtype: Tag,
+        cookie: c_uint,
+        data: ?*anyopaque,
+    };
 };
 // TODO: move these into Event namespace?
 // TODO: what should we do with bools? is being extern enough to force them to be `c_int`s?
@@ -541,30 +929,6 @@ test {
     std.testing.expectEqual(@as(ModifierState, @bitCast(theirs)), ours);
 }
 
-// TODO: could I make `type` have appropriate defaults in the different sub-structs?
-// problem: e.g. KeyEvent could be KeyPressed or KeyReleased
-pub const KeyEvent = extern struct {
-    type: EventTag,
-    // TODO: is this something we can give a more meaningful type to?
-    // undefined because these get ignored by XSendEvent, so we don't need to bother setting them
-    // but we want error checking on not setting them and then accessing (at least in debug mode)
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    root: Window,
-    subwindow: Window,
-    time: Time,
-    x: c_int,
-    y: c_int,
-    x_root: c_int,
-    y_root: c_int,
-    state: ModifierState,
-    // TODO: put a function to convert to keysym as a method
-    keycode: c_uint,
-    same_screen: c_bool,
-};
-
 pub const IsHint = enum(u8) {
     NotifyNormal = c.NotifyNormal,
     NotifyHint = c.NotifyHint,
@@ -573,366 +937,3 @@ pub const IsHint = enum(u8) {
 pub const Drawable = enum(c.Drawable) { _ };
 pub const Colormap = enum(c.Colormap) { _ };
 pub const ID = enum(c.XID) { _ };
-pub const KeyPressedEvent = KeyEvent;
-pub const KeyReleasedEvent = KeyEvent;
-pub const ButtonEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    root: Window,
-    subwindow: Window,
-    time: Time,
-    x: c_int,
-    y: c_int,
-    x_root: c_int,
-    y_root: c_int,
-    state: ModifierState,
-    button: c_uint,
-    same_screen: c_bool,
-};
-pub const ButtonPressedEvent = ButtonEvent;
-pub const ButtonReleasedEvent = ButtonEvent;
-pub const MotionEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    root: Window,
-    subwindow: Window,
-    time: Time,
-    x: c_int,
-    y: c_int,
-    x_root: c_int,
-    y_root: c_int,
-    state: ModifierState,
-    is_hint: IsHint,
-    same_screen: c_int,
-};
-pub const PointerMovedEvent = MotionEvent;
-
-// TODO: beyond this point conversions unfinished
-pub const CrossingEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    root: Window,
-    subwindow: Window,
-    time: Time,
-    x: c_int,
-    y: c_int,
-    x_root: c_int,
-    y_root: c_int,
-    mode: c_int,
-    detail: c_int,
-    same_screen: c_int,
-    focus: c_int,
-    state: c_uint,
-};
-pub const EnterWindowEvent = CrossingEvent;
-pub const LeaveWindowEvent = CrossingEvent;
-pub const FocusChangeEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    mode: c_int,
-    detail: c_int,
-};
-pub const FocusInEvent = FocusChangeEvent;
-pub const FocusOutEvent = FocusChangeEvent;
-pub const KeymapEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    key_vector: [32]u8,
-};
-pub const ExposeEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    x: c_int,
-    y: c_int,
-    width: c_int,
-    height: c_int,
-    count: c_int,
-};
-pub const GraphicsExposeEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    drawable: Drawable,
-    x: c_int,
-    y: c_int,
-    width: c_int,
-    height: c_int,
-    count: c_int,
-    major_code: c_int,
-    minor_code: c_int,
-};
-pub const NoExposeEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    drawable: Drawable,
-    major_code: c_int,
-    minor_code: c_int,
-};
-pub const VisibilityEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    state: c_int,
-};
-pub const CreateWindowEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    parent: Window,
-    window: Window,
-    x: c_int,
-    y: c_int,
-    width: c_int,
-    height: c_int,
-    border_width: c_int,
-    override_redirect: c_int,
-};
-pub const DestroyWindowEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    event: Window,
-    window: Window,
-};
-pub const UnmapEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    event: Window,
-    window: Window,
-    from_configure: c_int,
-};
-pub const MapEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    event: Window,
-    window: Window,
-    override_redirect: c_int,
-};
-pub const MapRequestEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    parent: Window,
-    window: Window,
-};
-pub const ReparentEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    event: Window,
-    window: Window,
-    parent: Window,
-    x: c_int,
-    y: c_int,
-    override_redirect: c_int,
-};
-pub const ConfigureEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    event: Window,
-    window: Window,
-    x: c_int,
-    y: c_int,
-    width: c_int,
-    height: c_int,
-    border_width: c_int,
-    above: Window,
-    override_redirect: c_int,
-};
-pub const GravityEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    event: Window,
-    window: Window,
-    x: c_int,
-    y: c_int,
-};
-pub const ResizeRequestEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    width: c_int,
-    height: c_int,
-};
-pub const ConfigureRequestEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    parent: Window,
-    window: Window,
-    x: c_int,
-    y: c_int,
-    width: c_int,
-    height: c_int,
-    border_width: c_int,
-    above: Window,
-    detail: c_int,
-    value_mask: c_ulong,
-};
-pub const CirculateEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    event: Window,
-    window: Window,
-    place: c_int,
-};
-pub const CirculateRequestEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    parent: Window,
-    window: Window,
-    place: c_int,
-};
-pub const PropertyEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    atom: Atom,
-    time: Time,
-    state: c_int,
-};
-pub const SelectionClearEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    selection: Atom,
-    time: Time,
-};
-pub const SelectionRequestEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    owner: Window,
-    requestor: Window,
-    selection: Atom,
-    target: Atom,
-    property: Atom,
-    time: Time,
-};
-pub const SelectionEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    requestor: Window,
-    selection: Atom,
-    target: Atom,
-    property: Atom,
-    time: Time,
-};
-pub const ColormapEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    colormap: Colormap,
-    new: c_int,
-    state: c_int,
-};
-const union_unnamed_4 = extern union {
-    b: [20]u8,
-    s: [10]c_short,
-    l: [5]c_long,
-};
-pub const ClientMessageEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    message_type: Atom,
-    format: c_int,
-    data: union_unnamed_4,
-};
-pub const MappingEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-    request: c_int,
-    first_keycode: c_int,
-    count: c_int,
-};
-pub const ErrorEvent = extern struct {
-    type: EventTag,
-    display: *Display = undefined,
-    resourceid: ID,
-    serial: c_ulong = undefined,
-    error_code: u8,
-    request_code: u8,
-    minor_code: u8,
-};
-pub const AnyEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    window: Window,
-};
-pub const GenericEvent = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    extension: c_int,
-    evtype: EventTag,
-};
-pub const GenericEventCookie = extern struct {
-    type: EventTag,
-    serial: c_ulong = undefined,
-    send_event: c_bool = undefined,
-    display: *Display = undefined,
-    extension: c_int,
-    evtype: EventTag,
-    cookie: c_uint,
-    data: ?*anyopaque,
-};
