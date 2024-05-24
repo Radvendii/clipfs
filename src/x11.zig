@@ -121,6 +121,9 @@ pub fn internAtom(atom_name: [:0]const u8, only_if_exists: bool) !Atom {
 pub fn nextEvent() Event {
     return DPY.nextEvent();
 }
+pub fn maskEvent(event_mask: EventMask) Event {
+    return DPY.maskEvent(event_mask);
+}
 pub fn getAtomName(a: Atom) ![*:0]u8 {
     return DPY.getAtomName(a);
 }
@@ -155,6 +158,7 @@ pub const Display = opaque {
     pub fn defaultScreen(dpy: *Display) ScreenNum {
         return @enumFromInt(c.DefaultScreen(dpy.raw()));
     }
+
     pub fn internAtom(dpy: *Display, atom_name: [:0]const u8, only_if_exists: bool) !Atom {
         const atom = try checkErrors(
             c.XInternAtom(dpy.raw(), atom_name.ptr, @intFromBool(only_if_exists)),
@@ -162,9 +166,17 @@ pub const Display = opaque {
         );
         return @enumFromInt(atom);
     }
+
     pub fn nextEvent(dpy: *Display) Event {
         var ev: Event = undefined;
         _ = c.XNextEvent(dpy.raw(), @ptrCast(&ev));
+        return ev;
+    }
+
+    // TODO: look at output assembly and see if RLS is applying to ev
+    pub fn maskEvent(dpy: *Display, event_mask: EventMask) Event {
+        var ev: Event = undefined;
+        _ = c.XMaskEvent(dpy.raw(), @bitCast(event_mask), @ptrCast(&ev));
         return ev;
     }
 
@@ -332,6 +344,39 @@ pub const Window = enum(c.Window) {
     }
 };
 
+// TODO: consider renaming this. "mask" mostly makes sense in the C context
+// on the other hand, it is the name people would look under
+pub const EventMask = packed struct(c_long) {
+    key_press: bool = false,
+    key_release: bool = false,
+    button_press: bool = false,
+    button_release: bool = false,
+    enter_window: bool = false,
+    leave_window: bool = false,
+    pointer_motion: bool = false,
+    pointer_motion_hint: bool = false,
+    button1_motion: bool = false,
+    button2_motion: bool = false,
+    button3_motion: bool = false,
+    button4_motion: bool = false,
+    button5_motion: bool = false,
+    button_motion: bool = false,
+    keymap_state: bool = false,
+    exposure: bool = false,
+    visibility_change: bool = false,
+    structure_notify: bool = false,
+    resize_redirect: bool = false,
+    substructure_notify: bool = false,
+    substructure_redirect: bool = false,
+    focus_change: bool = false,
+    property_change: bool = false,
+    colormap_change: bool = false,
+    owner_grab_button: bool = false,
+
+    // XXX: magic number 25 is the number of fields before this
+    _padding: std.meta.Int(.unsigned, @bitSizeOf(c_long) - 25) = 0,
+};
+
 pub const PropMode = enum(c_int) {
     Replace = c.PropModeReplace,
     Prepend = c.PropModePrepend,
@@ -410,15 +455,15 @@ pub const Event = extern union {
     keymap: KeymapEvent,
     generic: GenericEvent,
     cookie: GenericEventCookie,
+
     _pad: [24]c_long,
 
-    // TODO: event_mask
-    pub fn send(event: *const Event, dest: Window, propagate: bool, event_mask: c_int) !void {
+    pub fn send(event: *const Event, dest: Window, propagate: bool, event_mask: EventMask) !void {
         // @ptrCast() is legal because we've made them have the same bit layout
         // @constCast() is legal because XSendEvent does not modify the event passed in
         const c_event = @as(*c.XEvent, @constCast(@ptrCast(event)));
         const ret = try checkErrors(
-            c.XSendEvent(DPY.raw(), @intFromEnum(dest), @intFromBool(propagate), event_mask, c_event),
+            c.XSendEvent(DPY.raw(), @intFromEnum(dest), @intFromBool(propagate), @bitCast(event_mask), c_event),
             error{ BadValue, BadWindow },
         );
         if (ret == 0) return error.WireProtocolConversionFailed;
@@ -457,8 +502,9 @@ pub const ModifierState = packed struct(c_uint) {
     button3: bool = false,
     button4: bool = false,
     button5: bool = false,
+
     // XXX: magic number 13 is the number of fields before this
-    _padding: std.meta.Int(.unsigned, @bitSizeOf(c_uint) - 13) = 0,
+    _padding: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 13) = 0,
 };
 // TODO: exhaustive search?
 test {

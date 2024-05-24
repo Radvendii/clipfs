@@ -58,7 +58,7 @@ fn send_no(sev: x.SelectionRequestEvent) !void {
         .time = sev.time,
     } };
 
-    return ssev.send(sev.requestor, true, x.c.NoEventMask);
+    return ssev.send(sev.requestor, true, x.EventMask{});
 }
 
 fn send_utf8(sev: x.SelectionRequestEvent, utf8: x.Atom) !void {
@@ -77,5 +77,5 @@ fn send_utf8(sev: x.SelectionRequestEvent, utf8: x.Atom) !void {
         .time = sev.time,
     } };
 
-    return ssev.send(sev.requestor, true, x.c.NoEventMask);
+    return ssev.send(sev.requestor, true, x.EventMask{});
 }
