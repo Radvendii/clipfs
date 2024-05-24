@@ -6,9 +6,7 @@ const OurAtoms = enum {
     UTF8_STRING,
     TARGETS,
 };
-const N_OUR_ATOMS = std.meta.fields(OurAtoms).len;
-const OUR_ATOM_NAMES: *const [N_OUR_ATOMS][:0]const u8 = std.meta.fieldNames(OurAtoms);
-var OUR_ATOMS: [N_OUR_ATOMS]x.Atom = undefined;
+var OUR_ATOMS: std.EnumArray(OurAtoms, x.Atom) = undefined;
 
 pub fn main() !void {
     x.DPY = try x.Display.open(null);
@@ -24,9 +22,10 @@ pub fn main() !void {
     const owner = try root.createSimpleWindow(1, 1, 1, 1, 0, 0, 0);
     defer owner.destroy() catch unreachable;
 
-    OUR_ATOMS = try x.internAtoms(OUR_ATOM_NAMES, false);
+    OUR_ATOMS = try x.internAtoms(OurAtoms, false);
 
-    const sel = OUR_ATOMS[@intFromEnum(OurAtoms.CLIPBOARD)];
+    const sel = OUR_ATOMS.get(.CLIPBOARD);
+
     try owner.setSelectionOwner(sel);
 
     std.log.info("Took selection ownership\n", .{});
@@ -42,8 +41,8 @@ pub fn main() !void {
                 // is this copying it? is that a problem?
                 const sev = ev.selection_request;
                 std.log.info("Requestor: {x}", .{sev.requestor});
-                if (sev.target != utf8 or sev.property == x.Atom.None) {
-                    try send_no(sev);
+                if (sev.property == x.Atom.None) {
+                    try reject(sev);
                 } else {
                     try send(sev);
                 }
@@ -53,8 +52,7 @@ pub fn main() !void {
     }
 }
 
-fn send_no(sev: x.SelectionRequestEvent) !void {
-
+fn reject(sev: x.Event.SelectionRequest) !void {
     {
         const an = try x.getAtomName(sev.target);
         defer x.free(an);
@@ -72,14 +70,14 @@ fn send_no(sev: x.SelectionRequestEvent) !void {
     return ssev.send(sev.requestor, true, x.Event.Mask{});
 }
 
-fn send_utf8(sev: x.Event.SelectionRequest, utf8: x.Atom) !void {
+fn send(sev: x.Event.SelectionRequest) !void {
     {
         const an = try x.getAtomName(sev.property);
         defer x.free(an);
         std.log.info("Sending data to window {x}, property '{s}'", .{ sev.requestor, an });
     }
 
-    try sev.requestor.changeProperty(sev.property, OUR_ATOMS[@intFromEnum(OurAtoms.UTF8_STRING)], .Replace, "hello, world");
+    try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.UTF8_STRING), .Replace, "hello, world");
 
     const ssev = x.Event{ .selection = .{
         .type = .SelectionNotify,

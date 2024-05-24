@@ -132,11 +132,10 @@ pub fn internAtom(atom_name: [:0]const u8, only_if_exists: bool) !Atom {
     return DPY.internAtom(atom_name, only_if_exists);
 }
 pub fn internAtoms(
-    // names: *const [N][:0]const u8
-    names: anytype,
+    Names: type,
     only_if_exists: bool,
-) ![ptrArrayLen(@TypeOf(names))]Atom {
-    return DPY.internAtoms(names, only_if_exists);
+) !std.enums.EnumArray(Names, Atom) {
+    return DPY.internAtoms(Names, only_if_exists);
 }
 pub fn nextEvent() Event {
     return DPY.nextEvent();
@@ -189,23 +188,24 @@ pub const Display = opaque {
 
     pub fn internAtoms(
         dpy: *Display,
-        // names: *const [N][:0]const u8
-        names: anytype,
+        Names: type,
         only_if_exists: bool,
-    ) ![ptrArrayLen(@TypeOf(names))]Atom {
-        const len = comptime ptrArrayLen(@TypeOf(names));
-        // typecheck
-        _ = @as(*const [len][:0]const u8, names);
-        var c_names: [len][*c]u8 = undefined;
-        {
+    ) !std.enums.EnumArray(Names, Atom) {
+        const len = comptime std.meta.fields(Names).len;
+        const c_names = comptime blk: {
+            const names = std.meta.fieldNames(Names);
+            var c_names: [len][*c]u8 = undefined;
             for (&c_names, names) |*dst, src| {
                 dst.* = @constCast(src.ptr);
             }
-        }
-        var atoms_return: [len]Atom = undefined;
+            break :blk c_names;
+        };
+
+        // is it a problem to ptrCast this since the struct is not packed?
+        var atoms_return: std.enums.EnumArray(Names, Atom) = undefined;
 
         _ = try checkErrors(
-            c.XInternAtoms(dpy.raw(), &c_names, @intCast(names.len), @intFromBool(only_if_exists), @ptrCast(&atoms_return)),
+            c.XInternAtoms(dpy.raw(), @constCast(&c_names), len, @intFromBool(only_if_exists), @ptrCast(&atoms_return)),
             error{ BadAlloc, BadValue },
         );
 
