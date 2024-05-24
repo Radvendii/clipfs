@@ -1,6 +1,22 @@
 const std = @import("std");
 const x = @import("x11.zig");
 
+const OurAtoms = enum {
+    CLIPBOARD,
+    UTF8_STRING,
+    TARGETS,
+};
+const N_OUR_ATOMS = std.meta.fields(OurAtoms).len;
+const OUR_ATOM_NAMES: [N_OUR_ATOMS][*:0]const u8 = blk: {
+    var c_names: [N_OUR_ATOMS][*:0]const u8 = undefined;
+    const names = std.meta.fieldNames(OurAtoms);
+    for (&c_names, names) |*dst, src| {
+        dst.* = src.ptr;
+    }
+    break :blk c_names;
+};
+var OUR_ATOMS: [N_OUR_ATOMS]x.Atom = undefined;
+
 pub fn main() !void {
     x.DPY = try x.Display.open(null);
     // XXX: what do we do if close() errors?
@@ -15,9 +31,9 @@ pub fn main() !void {
     const owner = try root.createSimpleWindow(1, 1, 1, 1, 0, 0, 0);
     defer owner.destroy() catch unreachable;
 
-    const sel = try x.internAtom("CLIPBOARD", false);
-    const utf8 = try x.internAtom("UTF8_STRING", false);
+    try x.internAtoms(&OUR_ATOM_NAMES, false, &OUR_ATOMS);
 
+    const sel = OUR_ATOMS[@intFromEnum(OurAtoms.CLIPBOARD)];
     try owner.setSelectionOwner(sel);
 
     std.log.info("Took selection ownership\n", .{});
@@ -36,7 +52,7 @@ pub fn main() !void {
                 if (sev.target != utf8 or sev.property == x.Atom.None) {
                     try send_no(sev);
                 } else {
-                    try send_utf8(sev, utf8);
+                    try send(sev);
                 }
             },
             else => {},
@@ -66,7 +82,7 @@ fn send_no(sev: x.SelectionRequestEvent) !void {
     std.log.info("Sending data to window {x}, property '{s}'", .{ sev.requestor, an });
 fn send_utf8(sev: x.Event.SelectionRequest, utf8: x.Atom) !void {
 
-    try sev.requestor.changeProperty(sev.property, utf8, .Replace, "hello, world");
+    try sev.requestor.changeProperty(sev.property, OUR_ATOMS[@intFromEnum(OurAtoms.UTF8_STRING)], .Replace, "hello, world");
 
     const ssev = x.Event{ .selection = .{
         .type = .SelectionNotify,

@@ -120,6 +120,9 @@ pub fn defaultScreen() ScreenNum {
 pub fn internAtom(atom_name: [:0]const u8, only_if_exists: bool) !Atom {
     return DPY.internAtom(atom_name, only_if_exists);
 }
+pub fn internAtoms(names: []const [*:0]const u8, only_if_exists: bool, atoms_return: []Atom) !void {
+    return DPY.internAtoms(names, only_if_exists, atoms_return);
+}
 pub fn nextEvent() Event {
     return DPY.nextEvent();
 }
@@ -167,6 +170,16 @@ pub const Display = opaque {
             error{ BadAlloc, BadValue },
         );
         return @enumFromInt(atom);
+    }
+
+    // XXX: i don't love taking in c-strings here.
+    // but to convert them, we either need an allocator or a comptime-known length as another argument.
+    pub fn internAtoms(dpy: *Display, names: []const [*:0]const u8, only_if_exists: bool, atoms_return: []Atom) !void {
+        std.debug.assert(names.len == atoms_return.len);
+        _ = try checkErrors(
+            c.XInternAtoms(dpy.raw(), @constCast(@ptrCast(names.ptr)), @intCast(names.len), @intFromBool(only_if_exists), @ptrCast(atoms_return)),
+            error{ BadAlloc, BadValue },
+        );
     }
 
     pub fn nextEvent(dpy: *Display) Event {
