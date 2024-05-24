@@ -315,6 +315,10 @@ pub const Window = enum(c.Window) {
         property: Atom,
         typ: Atom,
         mode: PropMode,
+        // data must be coercible into an array with these sizes
+        // []const u8
+        // []const c_short
+        // []const c_long
         data: anytype,
     ) !void {
         const format: c_int = format: {
@@ -327,7 +331,7 @@ pub const Window = enum(c.Window) {
             // but we have to account for various types that implicitly coerce, such as *const [N]u8 or [:0]const u16
             // SEE: https://ziglang.org/documentation/master/#toc-Type-Coercion-Slices-Arrays-and-Pointers
             // There should be some builtin to test if one type coerces to another, but alas.
-            const errText = @typeName(@TypeOf(data)) ++ " does not coerce to `[]const` of `u8`, `u16`, or `u32`.";
+            const errText = @typeName(@TypeOf(data)) ++ " does not coerce to `[]const foo`.";
             const child = child: {
                 switch (@typeInfo(@TypeOf(data))) {
                     else => @compileError(errText),
@@ -357,11 +361,42 @@ pub const Window = enum(c.Window) {
             // TODO: we could remove some of the checks above and rely on this instead
             _ = @as([]const child, data);
 
-            switch (child) {
-                u8 => break :format 8,
-                u16 => break :format 16,
-                u32 => break :format 32,
-                else => @compileError(errText),
+            switch (@typeInfo(child)) {
+                .Type,
+                .Void,
+                .NoReturn,
+                .Array,
+                .ErrorUnion,
+                .ErrorSet,
+                .Fn,
+                .Frame,
+                .AnyFrame,
+                .EnumLiteral,
+                .Vector,
+                .Pointer,
+                .Undefined,
+                => @compileError("We can't send " ++ @typeName(child) ++ " to another x window!"),
+                .Opaque,
+                .Bool,
+                .ComptimeFloat,
+                .ComptimeInt,
+                .Null,
+                => @compileError(@typeName(child) ++ " has an ambiguous size when sending to another X window. Convert to []const of u8, c_short, or c_long"),
+                .Optional,
+                => @compileError("Not sure if it makes sense to implement this for optionals"),
+                // These are types we could actually send
+                .Union,
+                .Int,
+                .Float,
+                .Struct,
+                .Enum,
+                => switch (@bitSizeOf(child)) {
+                    // c_char is u8
+                    @bitSizeOf(u8) => break :format 8,
+                    @bitSizeOf(c_short) => break :format 16,
+                    @bitSizeOf(c_long) => break :format 32,
+                    else => @compileError(@typeName(child) ++ " has the wrong size to send to X. it must be the same size as u8, c_short, or c_long"),
+                },
             }
         };
 
