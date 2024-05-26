@@ -35,7 +35,7 @@
         fuse
         xorg.libX11
         xorg.libXfixes # don't know if we need this yet
-        file.dev
+        file
         zig
       ];
     };

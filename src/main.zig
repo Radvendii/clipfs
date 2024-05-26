@@ -31,11 +31,16 @@ pub fn main() !void {
     _ = in; // autofix
 
     const mag = magic.c.magic_open(magic.c.MAGIC_MIME_TYPE);
+    defer magic.c.magic_close(mag);
     _ = magic.c.magic_load(mag, null);
-    _ = magic.c.magic_compile(mag, null);
+    // _ = magic.c.magic_compile(mag, null);
     const mime = magic.c.magic_file(mag, path_arg.?);
 
-    std.debug.print("{s}\n", .{mime});
+    if (mime) |m| {
+        std.debug.print("{s}\n", .{m});
+    } else {
+        std.debug.print("null!", .{});
+    }
 
     if (true) return;
 
