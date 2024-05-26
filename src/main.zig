@@ -31,6 +31,7 @@ pub fn main() !void {
     std.log.info("Took selection ownership\n", .{});
 
     while (true) {
+        // selection events can't be masked
         const ev = x.nextEvent();
         switch (ev.type) {
             .SelectionClear => {
