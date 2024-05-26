@@ -1,7 +1,7 @@
-// TODO: use translate-c and modify the generated x11 bindings
-
 const std = @import("std");
-pub const c = @import("c.zig");
+pub const c = @cImport({
+    @cInclude("X11/Xlib.h");
+});
 
 const Outer = @This();
 

@@ -1,5 +1,6 @@
 const std = @import("std");
 const x = @import("x11.zig");
+const magic = @import("magic.zig");
 
 const OurAtoms = enum {
     CLIPBOARD,
@@ -9,6 +10,35 @@ const OurAtoms = enum {
 var OUR_ATOMS: std.EnumArray(OurAtoms, x.Atom) = undefined;
 
 pub fn main() !void {
+    var args = std.process.args();
+    if (!args.skip()) {
+        std.log.err("arg0 missing\n", .{});
+    }
+
+    const path_arg = args.next();
+
+    const in = blk: {
+        if (path_arg) |path| {
+            if (std.mem.eql(u8, path, "-")) {
+                break :blk std.io.getStdIn();
+            } else {
+                break :blk try std.fs.cwd().openFile(path, .{ .mode = .read_only });
+            }
+        } else {
+            break :blk std.io.getStdIn();
+        }
+    };
+    _ = in; // autofix
+
+    const mag = magic.c.magic_open(magic.c.MAGIC_MIME_TYPE);
+    _ = magic.c.magic_load(mag, null);
+    _ = magic.c.magic_compile(mag, null);
+    const mime = magic.c.magic_file(mag, path_arg.?);
+
+    std.debug.print("{s}\n", .{mime});
+
+    if (true) return;
+
     x.DPY = try x.Display.open(null);
     // XXX: what do we do if close() errors?
     defer x.DPY.close() catch unreachable;
