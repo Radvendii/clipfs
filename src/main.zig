@@ -1,6 +1,6 @@
 const std = @import("std");
 const x = @import("x11.zig");
-const magic = @import("magic.zig");
+const Magic = @import("magic.zig");
 
 const OurAtoms = enum {
     CLIPBOARD,
@@ -30,17 +30,13 @@ pub fn main() !void {
     };
     _ = in; // autofix
 
-    const mag = magic.c.magic_open(magic.c.MAGIC_MIME_TYPE);
-    defer magic.c.magic_close(mag);
-    _ = magic.c.magic_load(mag, null);
+    const mgc = Magic.open(.{ .mime_type = true });
+    defer mgc.close();
+    try mgc.load(null);
     // _ = magic.c.magic_compile(mag, null);
-    const mime = magic.c.magic_file(mag, path_arg.?);
+    const mime = try mgc.file(path_arg);
 
-    if (mime) |m| {
-        std.debug.print("{s}\n", .{m});
-    } else {
-        std.debug.print("null!", .{});
-    }
+    std.debug.print("{s}\n", .{mime});
 
     if (true) return;
 
