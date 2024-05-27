@@ -68,7 +68,13 @@ pub usingnamespace opaque {
 
     pub fn file(mgc: *Magic, file_path: ?[:0]const u8) ![:0]const u8 {
         const c_str = c.magic_file(mgc.raw(), @ptrCast(file_path)) orelse
-            return error.MagicFile;
+            return error.MagicFailed;
+        return std.mem.span(c_str);
+    }
+
+    pub fn buffer(mgc: *Magic, buf: []const u8) ![:0]const u8 {
+        const c_str = c.magic_buffer(mgc.raw(), @ptrCast(buf), buf.len) orelse
+            return error.MagicFailed;
         return std.mem.span(c_str);
     }
 

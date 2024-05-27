@@ -64,8 +64,8 @@ pub fn main() !void {
         try magic.load(null);
         // TODO: do i need this sometimes? how do i tell if the loaded file has already been compiled?
         // _ = magic.c.magic_compile(mag, null);
-        const mime = try magic.file(path_arg);
-        std.log.info("found file with mime type '{s}'", .{mime});
+        const mime = try magic.buffer(clip);
+        std.log.info("clipboard has mime type '{s}'", .{mime});
 
         if (std.mem.eql(u8, mime, "text/plain")) {
             break :mime OUR_ATOMS.get(.UTF8_STRING);
