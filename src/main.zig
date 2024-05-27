@@ -6,6 +6,7 @@ const OurAtoms = enum {
     CLIPBOARD,
     UTF8_STRING,
     TARGETS,
+    ATOM,
 };
 var OUR_ATOMS: std.EnumArray(OurAtoms, x.Atom) = undefined;
 
@@ -143,7 +144,7 @@ fn send_targets(sev: x.Event.SelectionRequest, mime: x.Atom) !void {
         // mime,
     };
 
-    try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.TARGETS), .Replace, &data);
+    try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.ATOM), .Replace, &data);
 
     try response_sent(sev);
 }
