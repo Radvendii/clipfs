@@ -2,6 +2,7 @@ const std = @import("std");
 pub const c = @cImport({
     @cInclude("magic.h");
 });
+const log = std.log.scoped(.libmagic);
 
 pub usingnamespace opaque {
     const Magic = @This();
@@ -69,5 +70,14 @@ pub usingnamespace opaque {
         const c_str = c.magic_file(mgc.raw(), @ptrCast(file_path)) orelse
             return error.MagicFile;
         return std.mem.span(c_str);
+    }
+
+    pub fn log_error(mgc: *Magic) bool {
+        if (c.magic_error(mgc.raw())) |err| {
+            log.err("{s}", .{err});
+            return true;
+        } else {
+            return false;
+        }
     }
 };

@@ -58,6 +58,9 @@ pub fn main() !void {
         const magic = Magic.open(.{ .mime_type = true });
         // remember that anything created by magic dies with it
         defer magic.close();
+        // if magic fails, tell us why
+        errdefer _ = magic.log_error();
+
         try magic.load(null);
         // TODO: do i need this sometimes? how do i tell if the loaded file has already been compiled?
         // _ = magic.c.magic_compile(mag, null);
