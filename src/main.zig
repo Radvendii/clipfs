@@ -8,7 +8,7 @@ const OurAtoms = enum {
     TARGETS,
     ATOM,
 };
-var OUR_ATOMS: std.EnumArray(OurAtoms, x.Atom) = undefined;
+var XA: std.EnumArray(OurAtoms, x.Atom) = undefined;
 
 pub fn main() !void {
     var args = std.process.args();
@@ -44,7 +44,7 @@ pub fn main() !void {
     // XXX: what do we do if close() errors?
     defer x.DPY.close() catch unreachable;
 
-    OUR_ATOMS = try x.internAtoms(OurAtoms, false);
+    XA = try x.internAtoms(OurAtoms, false);
 
     const screen = x.defaultScreen();
 
@@ -69,13 +69,13 @@ pub fn main() !void {
         std.log.info("clipboard has mime type '{s}'", .{mime});
 
         if (std.mem.eql(u8, mime, "text/plain")) {
-            break :mime OUR_ATOMS.get(.UTF8_STRING);
+            break :mime XA.get(.UTF8_STRING);
         } else {
             break :mime try x.internAtom(mime, false);
         }
     };
 
-    const sel = OUR_ATOMS.get(.CLIPBOARD);
+    const sel = XA.get(.CLIPBOARD);
 
     try owner.setSelectionOwner(sel);
 
@@ -95,7 +95,7 @@ pub fn main() !void {
                 std.log.info("Requestor: {x}", .{sev.requestor});
                 if (sev.property == x.Atom.None) {
                     try reject(sev);
-                } else if (sev.target == OUR_ATOMS.get(.TARGETS)) {
+                } else if (sev.target == XA.get(.TARGETS)) {
                     try send_targets(sev, mime);
                 } else if (sev.target == mime) {
                     try send_data(sev, mime, clip);
@@ -138,11 +138,11 @@ fn send_targets(sev: x.Event.SelectionRequest, mime: x.Atom) !void {
     try log_send(sev);
 
     const data = [_]x.Atom{
-        OUR_ATOMS.get(.TARGETS),
+        XA.get(.TARGETS),
         mime,
     };
 
-    try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.ATOM), .Replace, &data);
+    try sev.requestor.changeProperty(sev.property, XA.get(.ATOM), .Replace, &data);
 
     try response_sent(sev);
 }
