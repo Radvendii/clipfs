@@ -12,31 +12,48 @@ var OUR_ATOMS: std.EnumArray(OurAtoms, x.Atom) = undefined;
 pub fn main() !void {
     var args = std.process.args();
     if (!args.skip()) {
-        std.log.err("arg0 missing\n", .{});
+        std.log.err("arg0 missing", .{});
+        return error.Args;
     }
 
     const path_arg = args.next();
 
-    const in = blk: {
-        if (path_arg) |path| {
-            if (std.mem.eql(u8, path, "-")) {
-                break :blk std.io.getStdIn();
+    if (args.next()) |_| {
+        std.log.err("too many args", .{});
+        return error.Args;
+    }
+
+    // Read in the new clipboard contents (the file specified as an argument, or stdin)
+    const clip: []const u8 = clip: {
+        const in: std.fs.File = in: {
+            if (path_arg) |path| {
+                break :in try std.fs.cwd().openFile(path, .{ .mode = .read_only });
             } else {
-                break :blk try std.fs.cwd().openFile(path, .{ .mode = .read_only });
+                break :in std.io.getStdIn();
             }
-        } else {
-            break :blk std.io.getStdIn();
-        }
+        };
+        defer in.close();
+        // TODO: handle arbitrary lengths
+        var buf: [5_000_000]u8 = undefined;
+        const bytes = try in.readAll(&buf);
+        break :clip buf[0..bytes];
     };
-    _ = in; // autofix
 
-    const mgc = Magic.open(.{ .mime_type = true });
-    defer mgc.close();
-    try mgc.load(null);
-    // _ = magic.c.magic_compile(mag, null);
-    const mime = try mgc.file(path_arg);
+    const mime = mime: {
+        const magic = Magic.open(.{ .mime_type = true });
+        // remember that anything created by magic dies with it
+        defer magic.close();
+        try magic.load(null);
+        // TODO: do i need this sometimes? how do i tell if the loaded file has already been compiled?
+        // _ = magic.c.magic_compile(mag, null);
+        const mime = try magic.file(path_arg);
+        std.log.info("found file with mime type '{s}'", .{mime});
+        break :mime mime;
+    };
 
-    std.debug.print("{s}\n", .{mime});
+    if (std.mem.eql(u8, mime, "text/plain")) {
+        std.debug.print("got file: {s}", .{clip});
+    }
 
     if (true) return;
 
@@ -59,14 +76,14 @@ pub fn main() !void {
 
     try owner.setSelectionOwner(sel);
 
-    std.log.info("Took selection ownership\n", .{});
+    std.log.info("Took selection ownership", .{});
 
     while (true) {
         // selection events can't be masked
         const ev = x.nextEvent();
         switch (ev.type) {
             .SelectionClear => {
-                std.log.info("Lost selection ownership\n", .{});
+                std.log.info("Lost selection ownership", .{});
                 return;
             },
             .SelectionRequest => {
