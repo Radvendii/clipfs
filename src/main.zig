@@ -39,27 +39,11 @@ pub fn main() !void {
         break :clip buf[0..bytes];
     };
 
-    const mime = mime: {
-        const magic = Magic.open(.{ .mime_type = true });
-        // remember that anything created by magic dies with it
-        defer magic.close();
-        try magic.load(null);
-        // TODO: do i need this sometimes? how do i tell if the loaded file has already been compiled?
-        // _ = magic.c.magic_compile(mag, null);
-        const mime = try magic.file(path_arg);
-        std.log.info("found file with mime type '{s}'", .{mime});
-        break :mime mime;
-    };
-
-    if (std.mem.eql(u8, mime, "text/plain")) {
-        std.debug.print("got file: {s}", .{clip});
-    }
-
-    if (true) return;
-
     x.DPY = try x.Display.open(null);
     // XXX: what do we do if close() errors?
     defer x.DPY.close() catch unreachable;
+
+    OUR_ATOMS = try x.internAtoms(OurAtoms, false);
 
     const screen = x.defaultScreen();
 
@@ -70,7 +54,22 @@ pub fn main() !void {
     const owner = try root.createSimpleWindow(1, 1, 1, 1, 0, 0, 0);
     defer owner.destroy() catch unreachable;
 
-    OUR_ATOMS = try x.internAtoms(OurAtoms, false);
+    const mime = mime: {
+        const magic = Magic.open(.{ .mime_type = true });
+        // remember that anything created by magic dies with it
+        defer magic.close();
+        try magic.load(null);
+        // TODO: do i need this sometimes? how do i tell if the loaded file has already been compiled?
+        // _ = magic.c.magic_compile(mag, null);
+        const mime = try magic.file(path_arg);
+        std.log.info("found file with mime type '{s}'", .{mime});
+
+        if (std.mem.eql(u8, mime, "text/plain")) {
+            break :mime OUR_ATOMS.get(.UTF8_STRING);
+        } else {
+            break :mime try x.internAtom(mime, false);
+        }
+    };
 
     const sel = OUR_ATOMS.get(.CLIPBOARD);
 
@@ -92,20 +91,12 @@ pub fn main() !void {
                 std.log.info("Requestor: {x}", .{sev.requestor});
                 if (sev.property == x.Atom.None) {
                     try reject(sev);
+                } else if (sev.target == OUR_ATOMS.get(.TARGETS)) {
+                    try send_targets(sev, mime);
+                } else if (sev.target == mime) {
+                    try send_data(sev, mime, clip);
                 } else {
-                    if (sev.target == OUR_ATOMS.get(.UTF8_STRING)) {
-                        try send_utf8(sev);
-                    } else if (sev.target == OUR_ATOMS.get(.TARGETS)) {
-                        try send_targets(sev);
-                    } else {
-                        try reject(sev);
-                    }
-                    // can't switch on runtime values
-                    // switch (sev.target) {
-                    //     OUR_ATOMS.get(.UTF8_STRING) => try send_utf8(sev),
-                    //     OUR_ATOMS.get(.TARGETS) => try send_targets(sev),
-                    //     else => try reject(sev),
-                    // }
+                    try reject(sev);
                 }
             },
             else => {},
@@ -139,12 +130,14 @@ fn log_send(sev: x.Event.SelectionRequest) !void {
     std.log.info("Sending {s} to window {x}, property '{s}'", .{ target_n, sev.requestor, property_n });
 }
 
-fn send_targets(sev: x.Event.SelectionRequest) !void {
+fn send_targets(sev: x.Event.SelectionRequest, mime: x.Atom) !void {
+    _ = mime; // autofix
     try log_send(sev);
 
     const data = [_]x.Atom{
         OUR_ATOMS.get(.TARGETS),
         OUR_ATOMS.get(.UTF8_STRING),
+        // mime,
     };
 
     try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.TARGETS), .Replace, &data);
@@ -152,10 +145,10 @@ fn send_targets(sev: x.Event.SelectionRequest) !void {
     try response_sent(sev);
 }
 
-fn send_utf8(sev: x.Event.SelectionRequest) !void {
+fn send_data(sev: x.Event.SelectionRequest, mime: x.Atom, data: anytype) !void {
     try log_send(sev);
 
-    try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.UTF8_STRING), .Replace, "hello, world");
+    try sev.requestor.changeProperty(sev.property, mime, .Replace, data);
 
     try response_sent(sev);
 }
