@@ -2,6 +2,7 @@ const std = @import("std");
 pub const c = @cImport({
     @cInclude("X11/Xlib.h");
 });
+const log = std.log.scoped(.X11);
 
 const Outer = @This();
 
@@ -399,6 +400,8 @@ pub const Window = enum(c.Window) {
                 },
             }
         };
+
+        log.debug("Changing property with format {}", .{format});
 
         _ = try checkErrors(
             c.XChangeProperty(
