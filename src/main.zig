@@ -135,13 +135,11 @@ fn log_send(sev: x.Event.SelectionRequest) !void {
 }
 
 fn send_targets(sev: x.Event.SelectionRequest, mime: x.Atom) !void {
-    _ = mime; // autofix
     try log_send(sev);
 
     const data = [_]x.Atom{
         OUR_ATOMS.get(.TARGETS),
-        OUR_ATOMS.get(.UTF8_STRING),
-        // mime,
+        mime,
     };
 
     try sev.requestor.changeProperty(sev.property, OUR_ATOMS.get(.ATOM), .Replace, &data);
