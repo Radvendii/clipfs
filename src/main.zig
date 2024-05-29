@@ -11,6 +11,10 @@ const OurAtoms = enum {
 var XA: std.EnumArray(OurAtoms, x.Atom) = undefined;
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const alloc = gpa.allocator();
+
     var args = std.process.args();
     if (!args.skip()) {
         std.log.err("arg0 missing", .{});
@@ -35,10 +39,11 @@ pub fn main() !void {
         };
         defer in.close();
         // TODO: handle arbitrary lengths
-        var buf: [5_000_000]u8 = undefined;
-        const bytes = try in.readAll(&buf);
-        break :clip buf[0..bytes];
+        const buf = in.readToEndAlloc(alloc, 1_000_000_000) catch
+            std.debug.panic("can't handle file larger than 1GB", .{});
+        break :clip buf;
     };
+    defer alloc.free(clip);
 
     const owner = try init_x_window();
     defer deinit_x_window(owner) catch |e|
