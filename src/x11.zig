@@ -18,6 +18,7 @@ fn IntFromAny(T: type) type {
 }
 
 // zig seems pathological about not letting me just @bitCast() from an arbitrary type to int, so we have to use this convoluted mess
+// but I suppose it's also pathological that x11 uses error codes in their pointer return values
 fn asInt_helper(In: type, Out: type, t: anytype) Out {
     return switch (@typeInfo(In)) {
         .Type,
@@ -35,7 +36,7 @@ fn asInt_helper(In: type, Out: type, t: anytype) Out {
         .AnyFrame,
         .Vector,
         .EnumLiteral,
-        => unreachable,
+        => @compileError("Can't convert " ++ @typeName(In) ++ " to an int"),
         .Bool => @intFromBool(t),
         .Int => @intCast(t),
         .Float,
@@ -136,7 +137,7 @@ pub fn internAtoms(
     Names: type,
     only_if_exists: bool,
 ) !std.enums.EnumArray(Names, Atom) {
-    return DPY.internAtoms(Names, only_if_exists);
+    return DPY.internAtomsEnum(Names, only_if_exists);
 }
 pub fn nextEvent() Event {
     return DPY.nextEvent();
@@ -187,7 +188,7 @@ pub const Display = opaque {
         return @enumFromInt(atom);
     }
 
-    pub fn internAtoms(
+    pub fn internAtomsEnum(
         dpy: *Display,
         Names: type,
         only_if_exists: bool,
@@ -326,8 +327,8 @@ pub const Window = enum(c.Window) {
             // really we want
             // switch (@TypeOf(data)) {
             //     []const u8 => 8,
-            //     []const u16 => 16,
-            //     []const u32 => 32,
+            //     []const c_short => 16,
+            //     []const c_long => 32,
             // }
             // but we have to account for various types that implicitly coerce, such as *const [N]u8 or [:0]const u16
             // SEE: https://ziglang.org/documentation/master/#toc-Type-Coercion-Slices-Arrays-and-Pointers
@@ -346,13 +347,13 @@ pub const Window = enum(c.Window) {
                                     else => @compileError(errText),
                                 }
                             },
-                            // looking for `[]const child` or `[*c]child`
-                            .Slice, .C => {
+                            // looking for `[]const child`
+                            .Slice => {
                                 if (ptr.is_allowzero or ptr.is_volatile) @compileError(errText);
                                 break :child ptr.child;
                             },
                             // We must know how long the array is
-                            .Many => @compileError(errText),
+                            .Many, .C => @compileError(errText),
                         }
                     },
                 }
@@ -941,19 +942,6 @@ pub const Event = extern union {
 // TODO: move these into Event namespace?
 // TODO: what should we do with bools? is being extern enough to force them to be `c_int`s?
 
-// This doesn't actually help much, since we can't add more decls
-// pub fn Wrapper(T: type) type {
-//     return enum(T) {
-//         const Self = @This();
-//         _,
-//         pub inline fn unwrap(self: Self) T {
-//             return @intFromEnum(self);
-//         }
-//         pub inline fn wrap(t: T) Self {
-//             return @enumFromInt(t);
-//         }
-//     };
-// }
 pub const c_bool = c_int;
 // time in miliseconds
 pub const Time = enum(c_ulong) { _ };

@@ -1,6 +1,6 @@
 const std = @import("std");
 const x = @import("x11.zig");
-const Magic = @import("magic.zig");
+const Magic = @import("magic.zig").Magic;
 
 const OurAtoms = enum {
     CLIPBOARD,
@@ -40,31 +40,16 @@ pub fn main() !void {
         break :clip buf[0..bytes];
     };
 
-    x.DPY = try x.Display.open(null);
-    // XXX: what do we do if close() errors?
-    defer x.DPY.close() catch unreachable;
+    const owner = try init_x_window();
+    defer deinit_x_window(owner) catch |e|
+        std.debug.panic("X11 failed to close properly: {}", .{e});
 
-    XA = try x.internAtoms(OurAtoms, false);
-
-    const screen = x.defaultScreen();
-
-    const root = screen.rootWindow();
-
-    // dummy window to receive messages from the client that wants the clipboard
-    // XXX: the tutorial positions the window at -10, -10, but the function takes an unsigned value...
-    const owner = try root.createSimpleWindow(1, 1, 1, 1, 0, 0, 0);
-    defer owner.destroy() catch unreachable;
+    const magic = try init_magic();
+    defer magic.close();
+    // if magic fails, tell us why
+    errdefer _ = magic.logIfError();
 
     const mime = mime: {
-        const magic = Magic.open(.{ .mime_type = true });
-        // remember that anything created by magic dies with it
-        defer magic.close();
-        // if magic fails, tell us why
-        errdefer _ = magic.log_error();
-
-        try magic.load(null);
-        // TODO: do i need this sometimes? how do i tell if the loaded file has already been compiled?
-        // _ = magic.c.magic_compile(mag, null);
         const mime = try magic.buffer(clip);
         std.log.info("clipboard has mime type '{s}'", .{mime});
 
@@ -106,6 +91,33 @@ pub fn main() !void {
             else => {},
         }
     }
+}
+
+fn init_magic() !*Magic {
+    const magic = Magic.open(.{ .mime_type = true });
+
+    try magic.load(null);
+    // TODO: do i need this sometimes? how do i tell if the loaded file has already been compiled?
+    // _ = magic.c.magic_compile(mag, null);
+
+    return magic;
+}
+
+fn init_x_window() !x.Window {
+    x.DPY = try x.Display.open(null);
+    XA = try x.internAtoms(OurAtoms, false);
+
+    const screen = x.defaultScreen();
+
+    const root = screen.rootWindow();
+
+    // dummy window to receive messages from the client that wants the clipboard
+    // XXX: the tutorial positions the window at -10, -10, but the function takes an unsigned value...
+    return root.createSimpleWindow(1, 1, 1, 1, 0, 0, 0);
+}
+fn deinit_x_window(w: x.Window) !void {
+    try w.destroy();
+    try x.DPY.close();
 }
 
 fn reject(sev: x.Event.SelectionRequest) !void {

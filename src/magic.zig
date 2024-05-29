@@ -1,13 +1,15 @@
-const std = @import("std");
-pub const c = @cImport({
-    @cInclude("magic.h");
-});
-const log = std.log.scoped(.libmagic);
+// can't use a toplevel opaque. have to @import("magic.zig").Magic
+// SEE: https://github.com/ziglang/zig/issues/6617
+// SEE: https://github.com/ziglang/zig/issues/7881
+// SEE: https://github.com/ziglang/zig/issues/19448
+pub const Magic = opaque {
+    const std = @import("std");
+    pub const c = @cImport({
+        @cInclude("magic.h");
+    });
+    const log = std.log.scoped(.libmagic);
 
-pub usingnamespace opaque {
-    const Magic = @This();
-
-    pub inline fn raw(mgc: *Magic) c.magic_t {
+    inline fn raw(mgc: *Magic) c.magic_t {
         return @ptrCast(mgc);
     }
 
@@ -78,12 +80,9 @@ pub usingnamespace opaque {
         return std.mem.span(c_str);
     }
 
-    pub fn log_error(mgc: *Magic) bool {
+    pub fn logIfError(mgc: *Magic) void {
         if (c.magic_error(mgc.raw())) |err| {
             log.err("{s}", .{err});
-            return true;
-        } else {
-            return false;
         }
     }
 };
