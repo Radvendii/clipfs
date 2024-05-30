@@ -32,7 +32,7 @@
         gdb
         zls
 
-        fuse
+        fuse3
         xorg.libX11
         xorg.libXfixes # don't know if we need this yet
         file

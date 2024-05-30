@@ -24,7 +24,7 @@ pub fn build(b: *std.Build) void {
 
     // exe.linkSystemLibrary("x11");
     // exe.linkSystemLibrary("magic");
-    exe.linkSystemLibrary("fuse");
+    exe.linkSystemLibrary("fuse3");
     exe.linkLibC();
 
     // This declares intent for the executable to be installed into the

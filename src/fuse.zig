@@ -1,4 +1,5 @@
 const std = @import("std");
-const c = @cImport({
+pub const c = @cImport({
+    @cDefine("FUSE_USE_VERSION", 36);
     @cInclude("fuse.h");
 });
