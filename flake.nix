@@ -26,16 +26,12 @@
       inherit zig;
     };
     devShells.${system}.default = pkgs.mkShell {
-      MAGIC = "${pkgs.file}/share/misc/magic.mgc";
       buildInputs = with pkgs; [ 
         pkg-config
         gdb
         zls
 
         fuse
-        xorg.libX11
-        xorg.libXfixes # don't know if we need this yet
-        file
         zig
       ];
     };
