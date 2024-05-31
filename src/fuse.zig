@@ -83,6 +83,7 @@ fn ExternOperations(comptime zig_ops: Operations) type {
     };
 }
 
+///
 ///  Function to add an entry in a readdir() operation
 ///
 /// The *off* parameter can be any non-zero value that enables the
@@ -98,9 +99,6 @@ fn ExternOperations(comptime zig_ops: Operations) type {
 /// @param flags fill flags
 /// @return 1 if buffer is full, zero otherwise
 ///
-/// typedef int (*fuse_fill_dir_t) (void *buf, const char *name,
-/// 				const struct stat *stbuf, off_t off,
-/// 				enum fuse_fill_dir_flags flags);
 // TODO: I can't figure out any way to wrap this nicely, since it's passed *in*
 pub const FillDirFn = fn (
     buf: ?*anyopaque,
