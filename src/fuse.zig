@@ -50,8 +50,15 @@ fn cErr(err: E) c_int {
     return -n;
 }
 
-// TODO: take in a `type` and compare the decls with the fields of `Operations` to see that it's the right type
-fn ExternOperations(comptime zig_ops: Operations) type {
+// TODO: better error messages and tests
+fn ExternOperations(comptime ZigOps: type) type {
+    // typecheck
+    comptime var zig_ops = Operations{};
+    comptime {
+        for (@typeInfo(ZigOps).Struct.decls) |decl| {
+            @field(zig_ops, decl.name) = @field(ZigOps, decl.name);
+        }
+    }
     return struct {
         fn getattr(c_path: [*c]const u8, c_stat: [*c]c.struct_stat, c_fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
             _ = c_fi;
@@ -132,92 +139,15 @@ pub const ReadDirFlags = enum(c_int) {
     Normal = 0,
     Plus = (1 << 0),
 };
-fn externOperations(comptime zig_opts: Operations) c.struct_fuse_operations {
-    const ExternOps = ExternOperations(zig_opts);
-    return .{
-        .getattr = if (zig_opts.getattr) |_| ExternOps.getattr else null,
-        .readdir = if (zig_opts.readdir) |_| ExternOps.readdir else null,
-        .readlink = null,
-        .mknod = null,
-        .mkdir = null,
-        .unlink = null,
-        .rmdir = null,
-        .symlink = null,
-        .rename = null,
-        .link = null,
-        .chmod = null,
-        .chown = null,
-        .truncate = null,
-        .open = null,
-        .read = null,
-        .write = null,
-        .statfs = null,
-        .flush = null,
-        .release = null,
-        .fsync = null,
-        .setxattr = null,
-        .getxattr = null,
-        .listxattr = null,
-        .removexattr = null,
-        .opendir = null,
-        .releasedir = null,
-        .fsyncdir = null,
-        .init = null,
-        .destroy = null,
-        .access = null,
-        .create = null,
-        .lock = null,
-        .utimens = null,
-        .bmap = null,
-        .ioctl = null,
-        .poll = null,
-        .write_buf = null,
-        .read_buf = null,
-        .flock = null,
-        .fallocate = null,
-        .copy_file_range = null,
-        .lseek = null,
-        // .readlink = if (zig_opts.readlink) |_| ExternOps.readlink else null,
-        // .mknod = if (zig_opts.mknod) |_| ExternOps.mknod else null,
-        // .mkdir = if (zig_opts.mkdir) |_| ExternOps.mkdir else null,
-        // .unlink = if (zig_opts.unlink) |_| ExternOps.unlink else null,
-        // .rmdir = if (zig_opts.rmdir) |_| ExternOps.rmdir else null,
-        // .symlink = if (zig_opts.symlink) |_| ExternOps.symlink else null,
-        // .rename = if (zig_opts.rename) |_| ExternOps.rename else null,
-        // .link = if (zig_opts.link) |_| ExternOps.link else null,
-        // .chmod = if (zig_opts.chmod) |_| ExternOps.chmod else null,
-        // .chown = if (zig_opts.chown) |_| ExternOps.chown else null,
-        // .truncate = if (zig_opts.truncate) |_| ExternOps.truncate else null,
-        // .open = if (zig_opts.open) |_| ExternOps.open else null,
-        // .read = if (zig_opts.read) |_| ExternOps.read else null,
-        // .write = if (zig_opts.write) |_| ExternOps.write else null,
-        // .statfs = if (zig_opts.statfs) |_| ExternOps.statfs else null,
-        // .flush = if (zig_opts.flush) |_| ExternOps.flush else null,
-        // .release = if (zig_opts.release) |_| ExternOps.release else null,
-        // .fsync = if (zig_opts.fsync) |_| ExternOps.fsync else null,
-        // .setxattr = if (zig_opts.setxattr) |_| ExternOps.setxattr else null,
-        // .getxattr = if (zig_opts.getxattr) |_| ExternOps.getxattr else null,
-        // .listxattr = if (zig_opts.listxattr) |_| ExternOps.listxattr else null,
-        // .removexattr = if (zig_opts.removexattr) |_| ExternOps.removexattr else null,
-        // .opendir = if (zig_opts.opendir) |_| ExternOps.opendir else null,
-        // .releasedir = if (zig_opts.releasedir) |_| ExternOps.releasedir else null,
-        // .fsyncdir = if (zig_opts.fsyncdir) |_| ExternOps.fsyncdir else null,
-        // .init = if (zig_opts.init) |_| ExternOps.init else null,
-        // .destroy = if (zig_opts.destroy) |_| ExternOps.destroy else null,
-        // .access = if (zig_opts.access) |_| ExternOps.access else null,
-        // .create = if (zig_opts.create) |_| ExternOps.create else null,
-        // .lock = if (zig_opts.lock) |_| ExternOps.lock else null,
-        // .utimens = if (zig_opts.utimens) |_| ExternOps.utimens else null,
-        // .bmap = if (zig_opts.bmap) |_| ExternOps.bmap else null,
-        // .ioctl = if (zig_opts.ioctl) |_| ExternOps.ioctl else null,
-        // .poll = if (zig_opts.poll) |_| ExternOps.poll else null,
-        // .write_buf = if (zig_opts.write_buf) |_| ExternOps.write_buf else null,
-        // .read_buf = if (zig_opts.read_buf) |_| ExternOps.read_buf else null,
-        // .flock = if (zig_opts.flock) |_| ExternOps.flock else null,
-        // .fallocate = if (zig_opts.fallocate) |_| ExternOps.fallocate else null,
-        // .copy_file_range = if (zig_opts.copy_file_range) |_| ExternOps.copy_file_range else null,
-        // .lseek = if (zig_opts.lseek) |_| ExternOps.lseek else null,
-    };
+fn externOperations(comptime ZigOps: type) c.struct_fuse_operations {
+    const ExternOps = ExternOperations(ZigOps);
+    comptime var ops = c.struct_fuse_operations{};
+    comptime {
+        for (@typeInfo(ZigOps).Struct.decls) |decl| {
+            @field(ops, decl.name) = @field(ExternOps, decl.name);
+        }
+    }
+    return ops;
 }
 
 pub const Device = c.__dev_t;
@@ -259,8 +189,8 @@ pub const Stat = extern struct {
     __glibc_reserved: [3]c.__syscall_slong_t = std.mem.zeroes([3]c.__syscall_slong_t),
 };
 
-pub fn main(argv: [][*:0]u8, comptime ops: Operations, private_data: ?*anyopaque) !void {
-    const c_ops = externOperations(ops);
+pub fn main(argv: [][*:0]u8, comptime Ops: type, private_data: ?*anyopaque) !void {
+    const c_ops = externOperations(Ops);
     const ret = c.fuse_main_real(@intCast(argv.len), @ptrCast(argv.ptr), &c_ops, @sizeOf(@TypeOf(c_ops)), private_data);
     switch (ret) {
         0 => return,
