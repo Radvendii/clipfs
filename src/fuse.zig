@@ -12,41 +12,34 @@ pub const c = @cImport({
 const E = std.os.linux.E;
 
 // TODO: should i make the names more ziggy?
-// TODO: figure out what to do with file_info
-pub const Operations = struct {
-    getattr: ?*const fn (path: []const u8) error{ENOENT}!Stat = null,
-    /// Read directory
-    ///
-    ///The filesystem may choose between two modes of operation:
-    ///
-    ///1) The readdir implementation ignores the offset parameter, and
-    ///passes zero to the filler function's offset.  The filler
-    ///function will not return '1' (unless an error happens), so the
-    ///whole directory is read in a single readdir operation.
-    ///
-    ///2) The readdir implementation keeps track of the offsets of the
-    ///directory entries.  It uses the offset parameter and always
-    ///passes non-zero offset to the filler function.  When the buffer
-    ///is full (or an error happens) the filler function will return
-    ///'1'.
-    ///
-    ///When FUSE_READDIR_PLUS is not set, only some parameters of the
-    ///fill function (the fuse_fill_dir_t parameter) are actually used:
-    ///The file type (which is part of stat::st_mode) is used. And if
-    ///fuse_config::use_ino is set, the inode (stat::st_ino) is also
-    ///used. The other fields are ignored when FUSE_READDIR_PLUS is not
-    ///set.
-    ///
-    readdir: ?*const fn (
-        path: []const u8,
-        buf: ?*anyopaque,
-        filler: *const FillDirFn,
-        offset: usize,
-    ) error{ENOENT}!void = null,
-    open: ?*const fn (path: []const u8, fi: *FileInfo) error{ ENOENT, EACCES }!void = null,
-    read: ?*const fn (path: []const u8, buf: []u8, offset: usize, fi: *FileInfo) error{ENOENT}!usize = null,
+// problem is this is hidden from user, so they just have to run into type errors to figure out what types things should be.
+const __ZigOps = struct {
+    pub fn getattr(path: []const u8) error{ENOENT}!Stat {
+        _ = path;
+        @compileError("__ZigOps is a stub for type-checking purposes and its functions should not be called.");
+    }
+    pub fn readdir(path: []const u8, buf: ?*anyopaque, filler: *const FillDirFn, offset: usize) error{ENOENT}!void {
+        _ = path;
+        _ = buf;
+        _ = filler;
+        _ = offset;
+        @compileError("__ZigOps is a stub for type-checking purposes and its functions should not be called.");
+    }
+    pub fn open(path: []const u8, fi: *FileInfo) error{ ENOENT, EACCES }!void {
+        _ = path;
+        _ = fi;
+        @compileError("__ZigOps is a stub for type-checking purposes and its functions should not be called.");
+    }
+    pub fn read(path: []const u8, buf: []u8, offset: usize, fi: *FileInfo) error{ENOENT}!usize {
+        _ = path;
+        _ = buf;
+        _ = offset;
+        _ = fi;
+        @compileError("__ZigOps is a stub for type-checking purposes and its functions should not be called.");
+    }
 };
 
+// TODO: operate on error values
 fn cErr(err: E) c_int {
     const n: c_int = @intFromEnum(err);
     return -n;
@@ -55,17 +48,21 @@ fn cErr(err: E) c_int {
 // TODO: better error messages and tests
 fn ExternOperations(comptime ZigOps: type) type {
     // typecheck
-    comptime var zig_ops = Operations{};
     comptime {
         for (@typeInfo(ZigOps).Struct.decls) |decl| {
-            @field(zig_ops, decl.name) = @field(ZigOps, decl.name);
+            const got = @TypeOf(@field(ZigOps, decl.name));
+            const expected = @TypeOf(@field(__ZigOps, decl.name));
+            if (got != expected) {
+                @compileError("FUSE operation " ++ decl.name ++ " has the wrong type. Got: `" ++ got ++ "`. Expected: `" ++ expected ++ "`.");
+            }
         }
     }
+    // We take advantage of laziness. We can freely call `ZigOps.foo()` inside `ExternOps(ZigOps).foo()` because if the former isn't defined, the latter will never be called.
     return struct {
         pub fn getattr(c_path: [*c]const u8, c_stat: [*c]c.struct_stat, c_fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
             _ = c_fi;
             const path = std.mem.span(c_path);
-            const stat = zig_ops.getattr.?(path) catch |e| switch (e) {
+            const stat = ZigOps.getattr(path) catch |e| switch (e) {
                 error.ENOENT => return cErr(E.NOENT),
             };
             c_stat.* = @bitCast(stat);
@@ -84,14 +81,14 @@ fn ExternOperations(comptime ZigOps: type) type {
             _ = fi;
             _ = flags; // TODO
             const path = std.mem.span(c_path);
-            zig_ops.readdir.?(path, buf, @ptrCast(c_filler), @intCast(offset)) catch |e| switch (e) {
+            ZigOps.readdir(path, buf, @ptrCast(c_filler), @intCast(offset)) catch |e| switch (e) {
                 error.ENOENT => return cErr(E.NOENT),
             };
             return 0;
         }
         pub fn open(c_path: [*c]const u8, fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
             const path = std.mem.span(c_path);
-            zig_ops.open.?(path, @ptrCast(@alignCast(fi.?))) catch |e| switch (e) {
+            ZigOps.open(path, @ptrCast(@alignCast(fi.?))) catch |e| switch (e) {
                 error.ENOENT => return cErr(E.NOENT),
                 error.EACCES => return cErr(E.ACCES),
             };
@@ -99,12 +96,23 @@ fn ExternOperations(comptime ZigOps: type) type {
         }
         pub fn read(c_path: [*c]const u8, buf: [*c]u8, size: usize, offset: c.off_t, fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
             const path = std.mem.span(c_path);
-            const ret = zig_ops.read.?(path, buf[0..size], @intCast(offset), @ptrCast(@alignCast(fi.?))) catch |e| switch (e) {
+            const ret = ZigOps.read(path, buf[0..size], @intCast(offset), @ptrCast(@alignCast(fi.?))) catch |e| switch (e) {
                 error.ENOENT => return cErr(E.NOENT),
             };
             return @intCast(ret);
         }
     };
+}
+
+fn externOperations(comptime ZigOps: type) c.struct_fuse_operations {
+    const ExternOps = ExternOperations(ZigOps);
+    comptime var ops = c.struct_fuse_operations{};
+    comptime {
+        for (@typeInfo(ZigOps).Struct.decls) |decl| {
+            @field(ops, decl.name) = @field(ExternOps, decl.name);
+        }
+    }
+    return ops;
 }
 
 pub const FileInfo = extern struct {
@@ -167,16 +175,6 @@ pub const ReadDirFlags = enum(c_int) {
     Normal = 0,
     Plus = (1 << 0),
 };
-fn externOperations(comptime ZigOps: type) c.struct_fuse_operations {
-    const ExternOps = ExternOperations(ZigOps);
-    comptime var ops = c.struct_fuse_operations{};
-    comptime {
-        for (@typeInfo(ZigOps).Struct.decls) |decl| {
-            @field(ops, decl.name) = @field(ExternOps, decl.name);
-        }
-    }
-    return ops;
-}
 
 pub const Device = c.__dev_t;
 pub const Ino = c.__ino_t;
