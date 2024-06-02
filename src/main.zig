@@ -5,6 +5,7 @@ const FILENAME = "hello";
 const CONTENT =
     \\ hello, world!
     \\ this is a test file.
+    \\
 ;
 
 const Ops = struct {
@@ -27,14 +28,52 @@ const Ops = struct {
         path: []const u8,
         buf: ?*anyopaque,
         filler: *const fuse.FillDirFn,
-        _: fuse.Offset,
+        offset: usize,
     ) error{ENOENT}!void {
+        _ = offset;
+
         if (!std.mem.eql(u8, path, "/")) {
             return error.ENOENT;
         }
         _ = filler(buf, ".".ptr, null, 0, .Normal);
         _ = filler(buf, "..".ptr, null, 0, .Normal);
         _ = filler(buf, FILENAME.ptr, null, 0, .Normal);
+    }
+    pub fn open(
+        path: []const u8,
+        fi: *fuse.FileInfo,
+    ) error{ ENOENT, EACCES }!void {
+        if (!std.mem.eql(u8, path[1..], FILENAME)) {
+            return error.ENOENT;
+        }
+        if (fi.flags.ACCMODE != .RDONLY) {
+            return error.EACCES;
+        }
+    }
+    pub fn read(
+        path: []const u8,
+        buf: []u8,
+        offset: usize,
+        _: *fuse.FileInfo,
+    ) error{ENOENT}!usize {
+        if (!std.mem.eql(u8, path[1..], FILENAME)) {
+            return error.ENOENT;
+        }
+        if (offset >= CONTENT.len) {
+            // already all read
+            return 0;
+        }
+        // how much can we copy in
+        const s = if (offset + buf.len > CONTENT.len)
+            // all the rest
+            CONTENT.len - offset
+        else
+            // only what fits
+            buf.len;
+
+        @memcpy(buf[0..s], CONTENT[offset .. offset + s]);
+
+        return s;
     }
 };
 

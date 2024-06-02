@@ -41,8 +41,10 @@ pub const Operations = struct {
         path: []const u8,
         buf: ?*anyopaque,
         filler: *const FillDirFn,
-        offset: Offset,
+        offset: usize,
     ) error{ENOENT}!void = null,
+    open: ?*const fn (path: []const u8, fi: *FileInfo) error{ ENOENT, EACCES }!void = null,
+    read: ?*const fn (path: []const u8, buf: []u8, offset: usize, fi: *FileInfo) error{ENOENT}!usize = null,
 };
 
 fn cErr(err: E) c_int {
@@ -60,7 +62,7 @@ fn ExternOperations(comptime ZigOps: type) type {
         }
     }
     return struct {
-        fn getattr(c_path: [*c]const u8, c_stat: [*c]c.struct_stat, c_fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
+        pub fn getattr(c_path: [*c]const u8, c_stat: [*c]c.struct_stat, c_fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
             _ = c_fi;
             const path = std.mem.span(c_path);
             const stat = zig_ops.getattr.?(path) catch |e| switch (e) {
@@ -69,7 +71,7 @@ fn ExternOperations(comptime ZigOps: type) type {
             c_stat.* = @bitCast(stat);
             return 0;
         }
-        fn readdir(
+        pub fn readdir(
             c_path: [*c]const u8,
             buf: ?*anyopaque,
             c_filler: c.fuse_fill_dir_t,
@@ -82,13 +84,40 @@ fn ExternOperations(comptime ZigOps: type) type {
             _ = fi;
             _ = flags; // TODO
             const path = std.mem.span(c_path);
-            zig_ops.readdir.?(path, buf, @ptrCast(c_filler), offset) catch |e| switch (e) {
+            zig_ops.readdir.?(path, buf, @ptrCast(c_filler), @intCast(offset)) catch |e| switch (e) {
                 error.ENOENT => return cErr(E.NOENT),
             };
             return 0;
         }
+        pub fn open(c_path: [*c]const u8, fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
+            const path = std.mem.span(c_path);
+            zig_ops.open.?(path, @ptrCast(@alignCast(fi.?))) catch |e| switch (e) {
+                error.ENOENT => return cErr(E.NOENT),
+                error.EACCES => return cErr(E.ACCES),
+            };
+            return 0;
+        }
+        pub fn read(c_path: [*c]const u8, buf: [*c]u8, size: usize, offset: c.off_t, fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
+            const path = std.mem.span(c_path);
+            const ret = zig_ops.read.?(path, buf[0..size], @intCast(offset), @ptrCast(@alignCast(fi.?))) catch |e| switch (e) {
+                error.ENOENT => return cErr(E.NOENT),
+            };
+            return @intCast(ret);
+        }
     };
 }
+
+pub const FileInfo = extern struct {
+    // TODO: what are the possible values of these flags? how are they organized?
+    flags: std.c.O,
+    // TODO: figure out c bitfields
+    // SEE: https://github.com/ziglang/zig/issues/1499
+    bitfield: u32,
+    padding2: u32,
+    fh: u64,
+    lock_owner: u64,
+    poll_events: u32,
+};
 
 ///
 ///  Function to add an entry in a readdir() operation
@@ -201,6 +230,7 @@ pub fn main(argv: [][*:0]u8, comptime Ops: type, private_data: ?*anyopaque) !voi
         5 => return error.FuseDaemonize, // Failed to daemonize (detach from session)
         6 => return error.FuseSignalHandlers, // Failed to set up signal handlers
         7 => return error.FuseEventLoop, // An error occurred during the life of the file system
+        // TODO: this triggers on ^C. What common exit conditions am i missing?
         else => return error.FuseUnknown,
     }
 }

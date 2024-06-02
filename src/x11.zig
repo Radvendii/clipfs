@@ -522,6 +522,7 @@ pub const Event = extern union {
     }
     // TODO: consider renaming this. "mask" mostly makes sense in the C context
     // on the other hand, it is the name people would look under
+    // TODO: use a packed union to access the bitmask version of this as well
     pub const Mask = packed struct(c_long) {
         key_press: bool = false,
         key_release: bool = false,
