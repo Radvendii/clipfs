@@ -108,7 +108,6 @@ fn ExternOperations(comptime ZigOps: type) type {
 }
 
 pub const FileInfo = extern struct {
-    // TODO: what are the possible values of these flags? how are they organized?
     flags: std.c.O,
     // TODO: figure out c bitfields
     // SEE: https://github.com/ziglang/zig/issues/1499
