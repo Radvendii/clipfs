@@ -9,7 +9,7 @@ pub const c = @cImport({
     @cDefine("FUSE_USE_VERSION", "35");
     @cInclude("fuse.h");
 });
-const E = std.os.linux.E;
+const E = std.c.E;
 
 // TODO: should i make the names more ziggy?
 // problem is this is hidden from user, so they just have to run into type errors to figure out what types things should be.
