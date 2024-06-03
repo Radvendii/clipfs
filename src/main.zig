@@ -78,5 +78,7 @@ const Ops = struct {
 };
 
 pub fn main() !void {
-    try fuse.main(std.os.argv, Ops, null);
+    const t = try std.Thread.spawn(.{}, fuse.main, .{ std.os.argv, Ops, null });
+    t.join();
+    // try fuse.main(std.os.argv, Ops, null);
 }
