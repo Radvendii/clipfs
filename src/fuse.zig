@@ -13,30 +13,11 @@ const E = std.c.E;
 
 // TODO: should i make the names more ziggy?
 // problem is this is hidden from user, so they just have to run into type errors to figure out what types things should be.
-const __ZigOps = struct {
-    pub fn getattr(path: []const u8) error{ENOENT}!Stat {
-        _ = path;
-        @compileError("__ZigOps is a stub for type-checking purposes and its functions should not be called.");
-    }
-    pub fn readdir(path: []const u8, buf: ?*anyopaque, filler: *const FillDirFn, offset: usize) error{ENOENT}!void {
-        _ = path;
-        _ = buf;
-        _ = filler;
-        _ = offset;
-        @compileError("__ZigOps is a stub for type-checking purposes and its functions should not be called.");
-    }
-    pub fn open(path: []const u8, fi: *FileInfo) error{ ENOENT, EACCES }!void {
-        _ = path;
-        _ = fi;
-        @compileError("__ZigOps is a stub for type-checking purposes and its functions should not be called.");
-    }
-    pub fn read(path: []const u8, buf: []u8, offset: usize, fi: *FileInfo) error{ENOENT}!usize {
-        _ = path;
-        _ = buf;
-        _ = offset;
-        _ = fi;
-        @compileError("__ZigOps is a stub for type-checking purposes and its functions should not be called.");
-    }
+const ZigOpTypes = struct {
+    pub const getattr = fn (path: []const u8) error{ENOENT}!Stat;
+    pub const readdir = fn (path: []const u8, buf: ?*anyopaque, filler: *const FillDirFn, offset: usize) error{ENOENT}!void;
+    pub const open = fn (path: []const u8, fi: *FileInfo) error{ ENOENT, EACCES }!void;
+    pub const read = fn (path: []const u8, buf: []u8, offset: usize, fi: *FileInfo) error{ENOENT}!usize;
 };
 
 // TODO: operate on error values
@@ -51,7 +32,7 @@ fn ExternOperations(comptime ZigOps: type) type {
     comptime {
         for (@typeInfo(ZigOps).Struct.decls) |decl| {
             const got = @TypeOf(@field(ZigOps, decl.name));
-            const expected = @TypeOf(@field(__ZigOps, decl.name));
+            const expected = @field(ZigOpTypes, decl.name);
             if (got != expected) {
                 @compileError("FUSE operation " ++ decl.name ++ " has the wrong type. Got: `" ++ got ++ "`. Expected: `" ++ expected ++ "`.");
             }
