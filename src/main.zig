@@ -1,84 +1,27 @@
 const std = @import("std");
 const fuse = @import("fuse.zig");
+const FuseOps = @import("FuseOps.zig").FuseOps(Shared);
 
-const FILENAME = "hello";
-const CONTENT =
-    \\ hello, world!
-    \\ this is a test file.
-    \\
-;
-
-const Ops = struct {
-    pub fn getattr(path: []const u8) error{ENOENT}!fuse.Stat {
-        var ret: fuse.Stat = .{};
-        if (std.mem.eql(u8, path, "/")) {
-            ret.mode = fuse.c.S_IFDIR | 0o0755;
-            ret.nlink = 2;
-        } else if (std.mem.eql(u8, path[1..], "hello")) {
-            ret.mode = fuse.c.S_IFREG | 0o0444;
-            ret.nlink = 1;
-            ret.size = CONTENT.len;
-        } else {
-            return error.ENOENT;
-        }
-        return ret;
-    }
-
-    pub fn readdir(
-        path: []const u8,
-        buf: ?*anyopaque,
-        filler: *const fuse.FillDirFn,
-        offset: usize,
-    ) error{ENOENT}!void {
-        _ = offset;
-
-        if (!std.mem.eql(u8, path, "/")) {
-            return error.ENOENT;
-        }
-        _ = filler(buf, ".".ptr, null, 0, .Normal);
-        _ = filler(buf, "..".ptr, null, 0, .Normal);
-        _ = filler(buf, FILENAME.ptr, null, 0, .Normal);
-    }
-    pub fn open(
-        path: []const u8,
-        fi: *fuse.FileInfo,
-    ) error{ ENOENT, EACCES }!void {
-        if (!std.mem.eql(u8, path[1..], FILENAME)) {
-            return error.ENOENT;
-        }
-        if (fi.flags.ACCMODE != .RDONLY) {
-            return error.EACCES;
-        }
-    }
-    pub fn read(
-        path: []const u8,
-        buf: []u8,
-        offset: usize,
-        _: *fuse.FileInfo,
-    ) error{ENOENT}!usize {
-        if (!std.mem.eql(u8, path[1..], FILENAME)) {
-            return error.ENOENT;
-        }
-        if (offset >= CONTENT.len) {
-            // already all read
-            return 0;
-        }
-        // how much can we copy in
-        const s = if (offset + buf.len > CONTENT.len)
-            // all the rest
-            CONTENT.len - offset
-        else
-            // only what fits
-            buf.len;
-
-        @memcpy(buf[0..s], CONTENT[offset .. offset + s]);
-
-        return s;
-    }
+const Shared = struct {
+    pub const mutex: std.Thread.Mutex = .{};
+    pub var clipboard: []u8 = undefined;
 };
 
 pub fn main() !void {
-    const t = try std.Thread.spawn(.{}, fuse.main, .{ std.os.argv, Ops, null });
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const alloc = gpa.allocator();
+
+    // Read in the new clipboard contents (the file specified as an argument, or stdin)
+    const in = std.io.getStdIn();
+    defer in.close();
+    // TODO: handle arbitrary lengths
+    Shared.clipboard = in.readToEndAlloc(alloc, 1_000_000_000) catch
+        std.debug.panic("can't handle file larger than 1GB", .{});
+    defer alloc.free(Shared.clipboard);
+
+    // spawn FUSE main thread, which will handle reads from and writes to our file system.
+    const t = try std.Thread.spawn(.{}, fuse.main, .{ std.os.argv, FuseOps, null });
+    // TODO: deal with return value?
     t.join();
-    // try fuse.main(std.os.argv, Ops, null);
 }
