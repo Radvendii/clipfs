@@ -28,16 +28,6 @@ fn cErr(err: E) c_int {
 
 // TODO: better error messages and tests
 fn ExternOperations(comptime ZigOps: type) type {
-    // typecheck
-    comptime {
-        for (@typeInfo(ZigOps).Struct.decls) |decl| {
-            const got = @TypeOf(@field(ZigOps, decl.name));
-            const expected = @field(ZigOpTypes, decl.name);
-            if (got != expected) {
-                @compileError("FUSE operation " ++ decl.name ++ " has the wrong type. Got: `" ++ got ++ "`. Expected: `" ++ expected ++ "`.");
-            }
-        }
-    }
     // We take advantage of laziness. We can freely call `ZigOps.foo()` inside `ExternOps(ZigOps).foo()` because if the former isn't defined, the latter will never be called.
     return struct {
         pub fn getattr(c_path: [*c]const u8, c_stat: [*c]c.struct_stat, c_fi: ?*c.struct_fuse_file_info) callconv(.C) c_int {
@@ -90,7 +80,22 @@ fn externOperations(comptime ZigOps: type) c.struct_fuse_operations {
     comptime var ops = c.struct_fuse_operations{};
     comptime {
         for (@typeInfo(ZigOps).Struct.decls) |decl| {
-            @field(ops, decl.name) = @field(ExternOps, decl.name);
+            // XXX: this will silently ignore misspelled method names
+            const got = @TypeOf(@field(ZigOps, decl.name));
+            for (@typeInfo(ZigOpTypes).Struct.decls) |type_decl| {
+                if (std.mem.eql(u8, decl.name, type_decl.name)) {
+                    const expected = @field(ZigOpTypes, decl.name);
+                    if (got == expected) {
+                        @field(ops, decl.name) = @field(ExternOps, decl.name);
+                    } else {
+                        @compileError(
+                            "FUSE operation " ++ decl.name ++ " has the wrong type. " ++
+                                "Got: `" ++ got ++ "`. " ++
+                                "Expected: `" ++ expected ++ "`.",
+                        );
+                    }
+                }
+            }
         }
     }
     return ops;
@@ -174,6 +179,18 @@ pub const TimeSpec = extern struct {
     sec: Time,
     // TODO: figure out a better type name
     nsec: c.__syscall_slong_t,
+};
+
+pub const Context = struct {
+    uid: c.uid_t,
+    gid: c.gid_t,
+    pid: c.pid_t,
+    // TODO: can we pass the type this should be into Fuse to ensure types match?
+    private_data: ?*anyopaque,
+    umask: c.mode_t,
+    pub fn get() *Context {
+        c.fuse_get_context();
+    }
 };
 
 // TODO: do i name these fields more nicely, or leave them?

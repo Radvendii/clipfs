@@ -23,14 +23,21 @@
 - [ ] figure out how to use FUSE non-blocking
 - [ ] copy on write
 - [ ] paste on read
+- [ ] explore directory structure options
+  - e.g. selections/* copies to other selections
+- [ ] display all paste options when someone else has the clipboard
+  - You can use XFixes to get that notification
+  - https://github.com/cdown/clipnotify/blob/master/clipnotify.c
 
 ### Phase III: polish
 
 - [ ] make sure there's adequate unit testing
 - [ ] make sure there's adequate integration testing
+- [ ] make sure all the relevant file operations are supported
 - [ ] consider factoring bindings into separate repos
 - [ ] compile via nix
 - [ ] NixOS service to automatically mount
+- [ ] refactor code to be more intuitive to read
 - [ ] deal with all TODOs and XXXs
 - [ ] documentation
   - [ ] proper readme
@@ -47,5 +54,21 @@
 
 ## Useful Resources
 
+### x11 selections
+
+- http://www.uninformativ.de/blog/postings/2017-04-02/0/POSTING-en.html
+- https://www.jwz.org/doc/x-cut-and-paste.html
+- xclip -t
+
+### fuse
+
 - https://richiejp.com/zig-fuse-one
 - http://libfuse.github.io/doxygen/structfuse__operations.html
+
+
+
+
+- everything can be driven by either paste or filesystem requests
+- use a generational index on the clipboard, and use that as a filehandle
+  - we can either keep clipboards around in an array until the file is closed, or can just invalidate them immediately on a new copy
+- figure out what target a .tar.gz file counts as

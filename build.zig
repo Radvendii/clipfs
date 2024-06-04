@@ -22,8 +22,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // exe.linkSystemLibrary("x11");
-    // exe.linkSystemLibrary("magic");
+    exe.linkSystemLibrary("x11");
+    exe.linkSystemLibrary("magic");
     exe.linkSystemLibrary("fuse3");
     exe.linkLibC();
 
