@@ -181,7 +181,8 @@ pub const TimeSpec = extern struct {
     nsec: c.__syscall_slong_t,
 };
 
-pub const Context = struct {
+pub const Context = extern struct {
+    fuse: ?*c.struct_fuse,
     uid: c.uid_t,
     gid: c.gid_t,
     pid: c.pid_t,
@@ -189,7 +190,7 @@ pub const Context = struct {
     private_data: ?*anyopaque,
     umask: c.mode_t,
     pub fn get() *Context {
-        c.fuse_get_context();
+        return @ptrCast(c.fuse_get_context());
     }
 };
 
@@ -213,9 +214,16 @@ pub const Stat = extern struct {
     __glibc_reserved: [3]c.__syscall_slong_t = std.mem.zeroes([3]c.__syscall_slong_t),
 };
 
-pub fn main(argv: [][*:0]u8, comptime Ops: type, private_data: ?*anyopaque) !void {
+pub fn main(argv: [][*:0]u8, comptime Ops: type, private_data: anytype) !void {
     const c_ops = externOperations(Ops);
-    const ret = c.fuse_main_real(@intCast(argv.len), @ptrCast(argv.ptr), &c_ops, @sizeOf(@TypeOf(c_ops)), private_data);
+    const ret = c.fuse_main_real(
+        @intCast(argv.len),
+        @ptrCast(argv.ptr),
+        &c_ops,
+        @sizeOf(@TypeOf(c_ops)),
+        // TODO: typecheck this
+        @ptrCast(private_data),
+    );
     switch (ret) {
         0 => return,
         1 => return error.FuseParseArgs, // Invalid option arguments

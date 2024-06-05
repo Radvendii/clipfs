@@ -1,9 +1,12 @@
 const std = @import("std");
 const fuse = @import("fuse.zig");
 const Clipboard = @import("Clipboard.zig");
-pub var clip: *Clipboard = undefined;
 
 const FILENAME = "hello";
+
+fn clipboard() *Clipboard {
+    return @alignCast(@ptrCast(fuse.Context.get().private_data));
+}
 
 pub fn getattr(path: []const u8) error{ENOENT}!fuse.Stat {
     var ret: fuse.Stat = .{};
@@ -13,7 +16,7 @@ pub fn getattr(path: []const u8) error{ENOENT}!fuse.Stat {
     } else if (std.mem.eql(u8, path[1..], FILENAME)) {
         ret.mode = fuse.c.S_IFREG | 0o0444;
         ret.nlink = 1;
-        ret.size = @intCast(clip.clipboard.len);
+        ret.size = @intCast(clipboard().clipboard.len);
     } else {
         return error.ENOENT;
     }
@@ -52,6 +55,7 @@ pub fn read(
     offset: usize,
     _: *fuse.FileInfo,
 ) error{ENOENT}!usize {
+    const clip = clipboard();
     if (!std.mem.eql(u8, path[1..], FILENAME)) {
         return error.ENOENT;
     }

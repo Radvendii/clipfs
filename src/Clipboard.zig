@@ -100,6 +100,7 @@ pub fn copy(self: *Self, data: []const u8) !void {
         self.clipboard_mx.lock();
         defer self.clipboard_mx.unlock();
 
+        // XXX: leaking old clipboard
         self.clipboard = try self.allocator.dupe(u8, data);
 
         // TODO: only calculate the mime type when it's needed (you can compare generational references)
