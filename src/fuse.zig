@@ -214,6 +214,8 @@ pub const Stat = extern struct {
     __glibc_reserved: [3]c.__syscall_slong_t = std.mem.zeroes([3]c.__syscall_slong_t),
 };
 
+// TODO: wrap the component parts of main()
+// SEE: https://github.com/libfuse/libfuse/blob/dd5349a2cf77cd2e0fdbfa8c7fa828986e48f84f/lib/helper.c#L308
 pub fn main(argv: [][*:0]u8, comptime Ops: type, private_data: anytype) !void {
     const c_ops = externOperations(Ops);
     const ret = c.fuse_main_real(

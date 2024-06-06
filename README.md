@@ -21,6 +21,7 @@
 ### Phase II: integration
 
 - [ ] figure out how to use FUSE non-blocking
+  - seems like we need to break fuse_main into its constituent parts and use those
 - [ ] copy on write
 - [ ] paste on read
 - [ ] explore directory structure options
@@ -63,6 +64,7 @@
 ### fuse
 
 - https://richiejp.com/zig-fuse-one
+- https://richiejp.com/zig-fuse-two
 - http://libfuse.github.io/doxygen/structfuse__operations.html
 
 

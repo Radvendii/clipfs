@@ -24,6 +24,7 @@ pub fn main() !void {
 
     // spawn FUSE main thread, which will handle reads from and writes to our file system and forward them to our FuseOps callbacks
     // From here on out we have to be careful accessing the clipboard only behind the mutex
+    // TODO: fuse_main() daemonizes and shit. let's not call it.
     const fuse_thread = try std.Thread.spawn(.{}, fuse.main, .{ std.os.argv, FuseOps, &clip });
     try clip.eventLoop();
     // TODO: deal with return value?
