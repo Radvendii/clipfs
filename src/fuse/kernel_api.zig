@@ -1,5 +1,7 @@
 const std = @import("std");
 const zeroes = std.mem.zeroes;
+// could do this
+// const l = std.os.linux;
 
 // TODO: there are a bunch of flags struct members that are unclear what flags are supported
 
@@ -604,9 +606,9 @@ pub const InHeader = extern struct {
     opcode: u32,
     unique: u64,
     nodeid: u64,
-    uid: u32,
-    gid: u32,
-    pid: u32,
+    uid: std.os.linux.uid_t,
+    gid: std.os.linux.gid_t,
+    pid: std.os.linux.pid_t,
     total_extlen: u16,
     padding: u16 = zeroes(u16),
 };
@@ -620,6 +622,7 @@ pub const OutHeader = extern struct {
 pub fn alignU64(x: usize) usize {
     return x + @sizeOf(u64) - 1 & ~(@sizeOf(u64) - 1);
 }
+// TODO: consider using std.mem.CopyPtrAttrs
 fn TransferConstVolatile(BasePtr: type, ConstVolatilePtr: type) !type {
     switch (@typeInfo(BasePtr)) {
         .Pointer => |base_ptr| {
