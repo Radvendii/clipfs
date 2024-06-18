@@ -144,8 +144,10 @@ pub const OpCode = enum(c_uint) {
     cuse_init = 4096,
 
     // Reserved opcodes: helpful to detect structure endian-ness
-    cuse_init_bswap_reserved = @intFromEnum(OpCode.cuse_init) << 8, // 1048576
-    init_bswap_reserved = @intFromEnum(OpCode.init) << 24, // 436207616
+    // TODO: should be able to directly refer to the other values here.
+    // SEE: https://github.com/ziglang/zig/issues/20339
+    cuse_init_bswap_reserved = 1048576, // @intFromEnum(OpCode.cuse_init) << 8,
+    init_bswap_reserved = 436207616, // @intFromEnum(OpCode.init) << 24,
 };
 pub const NotifyCode = enum(c_uint) {
     poll = 1,
@@ -603,7 +605,7 @@ pub const FallocateIn = extern struct {
 };
 pub const InHeader = extern struct {
     len: u32,
-    opcode: u32,
+    opcode: OpCode,
     unique: u64,
     nodeid: u64,
     uid: std.os.linux.uid_t,
