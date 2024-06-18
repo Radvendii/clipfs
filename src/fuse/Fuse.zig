@@ -50,7 +50,11 @@ pub fn init() !Self {
     // init exchange
 
     const header = try reader.readStruct(kernel.InHeader);
-    std.debug.print("kernel: header: {}", .{header});
+    log.debug("received header from kernel: {}", .{header});
+    std.debug.assert(header.opcode == .init);
+    std.debug.assert(header.len == @sizeOf(kernel.InitIn) + @sizeOf(kernel.InHeader));
+    const init_in = try reader.readStruct(kernel.InitIn);
+    log.debug("received init from kernel: {}", .{init_in});
 
     return self;
 }

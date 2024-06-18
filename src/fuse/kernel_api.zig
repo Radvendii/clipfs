@@ -34,6 +34,8 @@ pub const Attr = extern struct {
         submount: bool = false,
         /// enable DAX for this file in per inode DAX mode
         dax: bool = false,
+
+        _padding: std.meta.Int(.unsigned, 32 - 25) = 0,
     };
 };
 /// The following structures are bit-for-bit compatible with the statx(2) ABI in Linux
@@ -186,6 +188,7 @@ pub const BatchForgetIn = extern struct {
 };
 pub const GetattrFlags = packed struct(u32) {
     fh: bool = false,
+    _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 pub const GetattrIn = extern struct {
     getattr_flags: GetattrFlags,
@@ -268,12 +271,15 @@ pub const SetattrIn = extern struct {
         lockowner: bool = false,
         ctime: bool = false,
         kill_suidgid: bool = false,
+
+        _padding: std.meta.Int(.unsigned, 32 - 12) = 0,
     };
 };
 
 pub const OpenInFlags = packed struct(u32) {
     //// kill suid and sgid if executable
     kill_suidgid: bool = false,
+    _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 pub const OpenIn = extern struct {
     // TODO: are both of these the same set of Flags?
@@ -303,6 +309,8 @@ pub const OpenOutFlags = packed struct(u32) {
     noflush: bool = false,
     /// allow concurrent direct writes on the same inode
     parallel_direct_writes: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 7) = 0,
 };
 pub const OpenOut = extern struct {
     fh: u64,
@@ -312,6 +320,8 @@ pub const OpenOut = extern struct {
 pub const ReleaseFlags = packed struct(u32) {
     flush: bool = false,
     flock_unlock: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 2) = 0,
 };
 
 pub const ReleaseIn = extern struct {
@@ -328,6 +338,8 @@ pub const FlushIn = extern struct {
 };
 pub const ReadFlags = packed struct(u32) {
     lockowner: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 
 /// the read buffer is required to be at least 8k, but may be much larger
@@ -352,6 +364,8 @@ pub const WriteFlags = packed struct(u32) {
     kill_suidgid: bool = false,
     // obsolete alias: this flag implies killing suid/sgid only
     // kill_priv == kill_suidgid
+
+    _padding: std.meta.Int(.unsigned, 32 - 3) = 0,
 };
 pub const WriteIn = extern struct {
     fh: u64,
@@ -374,6 +388,8 @@ pub const StatfsOut = extern struct {
 pub const FsyncFlags = packed struct(u32) {
     /// sync data only, not metadata
     fdatasync: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 pub const FsyncIn = extern struct {
     fh: u64,
@@ -383,6 +399,8 @@ pub const FsyncIn = extern struct {
 pub const SetxattrFlags = packed struct(u32) {
     /// clear sgid when system.posix_acl_access is set
     acl_kill_sgid: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 pub const SetxattrIn = extern struct {
     size: u32,
@@ -401,6 +419,8 @@ pub const GetxattrOut = extern struct {
 };
 pub const LkFlags = packed struct(u32) {
     flock: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 
 pub const LkIn = extern struct {
@@ -504,6 +524,8 @@ pub const InitFlags2 = packed struct(u32) {
     /// relax restrictions in FOPEN_DIRECT_IO mode, for now
     /// allow shared mmap
     direct_io_relax: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 5) = 0,
 };
 pub const InitIn = extern struct {
     major: u32,
@@ -555,6 +577,8 @@ pub const IoctlFlags = packed struct(u32) {
     dir: bool = false,
     /// x32 compat ioctl on 64bit machine (64bit time_t)
     compat_x32: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 6) = 0,
 };
 /// maximum of in_iovecs + out_iovecs
 pub const MAX_IOVEC = 256;
@@ -581,6 +605,8 @@ pub const IoctlOut = extern struct {
 pub const PollFlags = packed struct(u32) {
     /// request poll notify
     schedule_notify: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 
 pub const PollIn = extern struct {
@@ -700,6 +726,8 @@ pub const NotifyInvalInodeOut = extern struct {
 };
 pub const NotifyInvalEntryFlags = packed struct(u32) {
     expire_only: bool = false,
+
+    _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 pub const NotifyInvalEntryOut = extern struct {
     parent: u64,
@@ -766,6 +794,7 @@ pub const SetupmappingIn = extern struct {
     pub const Flags = packed struct(u64) {
         write: bool = false,
         read: bool = false,
+        _padding: std.meta.Int(.unsigned, 32 - 2) = 0,
     };
 };
 
@@ -825,6 +854,7 @@ pub const FUSE_DEV_IOC_CLONE = std.os.linux.IOCTL.IOR(DEV_IOC_MAGIC, 0, u32);
 pub const Cuse = struct {
     pub const InitFlags = packed struct(u32) {
         unrestricted_ioctl: bool = false,
+        _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
     };
     pub const InitIn = extern struct {
         major: u32,
