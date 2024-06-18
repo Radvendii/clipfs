@@ -65,6 +65,11 @@
 
 - https://richiejp.com/zig-fuse-one
 - https://richiejp.com/zig-fuse-two
+- https://stackoverflow.com/questions/31601272/how-can-i-create-a-userspace-filesystem-with-fuse-without-using-libfuse
+- https://www.kernel.org/doc/html/next/filesystems/fuse.html
+- https://www.man7.org/linux/man-pages/man4/fuse.4.html
+- https://billauer.co.il/blog/2020/02/linux-cuse-fuse-libfuse-crash/
+- https://john-millikin.com/the-fuse-protocol
 - http://libfuse.github.io/doxygen/structfuse__operations.html
 
 
