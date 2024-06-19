@@ -642,11 +642,14 @@ pub const InHeader = extern struct {
 };
 pub const OutHeader = extern struct {
     len: u32,
+    // TODO: does this have a more defined error type? totally unclear from the docs
+    // TODO: look in the kernel
     @"error": i32,
     unique: u64,
 };
 
 /// align up (ceil) to the nearest u64
+/// this is FUSE_REC_ALIGN / FUSE_DIRENT_ALIGN in the C header
 pub fn alignU64(x: usize) usize {
     return x + @sizeOf(u64) - 1 & ~(@sizeOf(u64) - 1);
 }
