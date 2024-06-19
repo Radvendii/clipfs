@@ -163,6 +163,10 @@ pub fn init() !Self {
     return self;
 }
 
+pub fn recv1(self: *Self) !void {
+    const header = try self.reader().readStruct(kernel.InHeader);
+    log.info("received header from kernel with opcode {}", .{header.opcode});
+}
 // TODO: if we put the version number of the change into the COMPAT_SIZE name, we can comptime automate this whole thing
 // TODO: we could allow for sending ints here. i'm a little wary of that because it's such an unusual thing to do that i don't want to bog down the "normal" function with it or give the impression it's a normal thing
 pub fn outSize(self: *const Self, comptime Data: type) usize {
