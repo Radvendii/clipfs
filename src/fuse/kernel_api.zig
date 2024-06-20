@@ -7,10 +7,26 @@ pub const VERSION = 7;
 pub const MINOR_VERSION = 39;
 pub const ROOT_ID = 1;
 
+/// errno values are technically defined to be positive. However, as return
+/// values their negations are typically used. This convention is followed
+/// in the OutHeader struct. To provide a convenient, legible enum interface
+/// without incurring the runtime cost and visual noise of conversions, we
+/// define here a negative version of std.posix.E, where each of the fields is
+/// the negative version.
+//
+// Unfortunately, comptime means:
+// - no lsp completion.
+// - we can't have any decls, such as `init()`
+// I tried spelling out all the options explicitly, but different architectures
+// have different sets of error codes (e.g. E.PORCLIM only defined on sparc*
+// variants)
+//
+// Using @"-E" is a choice. Not sure if I like it. @"" is ugly, and used very
+// little, but it is the most obvious identifier that explains what it is. NE
+// could be a lot of things. Another option would be to just use E, but I do
+// sort of respect that error codes *are* defined to be positive.
 pub const @"-E" = @"-E": {
     const Type = std.builtin.Type;
-    // TODO: should this be std.os.linux.E, since we're interacting with the linux kernel?
-    // they're probably the same except for some weird edge case
     const E = std.posix.E;
     const fields = @typeInfo(E).Enum.fields;
     var @"-fields": [fields.len]Type.EnumField = undefined;
