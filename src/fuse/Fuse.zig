@@ -19,7 +19,6 @@ pub const READ_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
 pub const WRITE_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
 
 dev: std.fs.File,
-// TODO: is this the right use of AnyReader? Should I be more specific here?
 _reader: std.io.BufferedReader(READ_BUF_SIZE, std.fs.File.Reader),
 _writer: std.io.BufferedWriter(WRITE_BUF_SIZE, std.fs.File.Writer),
 version: struct { major: u32, minor: u32 },
@@ -117,7 +116,7 @@ pub fn init() !Self {
     if (init_in.major > self.version.major) {
         try self.writer().writeStruct(kernel.OutHeader{
             .unique = in_header.unique,
-            .@"error" = 0,
+            .@"error" = .SUCCESS,
             .len = @sizeOf(kernel.OutHeader) + @sizeOf(u32),
         });
         try self.writer().writeInt(u32, kernel.VERSION, @import("builtin").target.cpu.arch.endian());
@@ -233,7 +232,7 @@ pub fn sendOut(self: *Self, unique: u64, data: anytype) !void {
     const out_bytes = try self.outBytes(&data);
 
     const header = kernel.OutHeader{
-        .@"error" = 0,
+        .@"error" = .SUCCESS,
         .unique = unique,
         .len = @intCast(@sizeOf(kernel.OutHeader) + out_bytes.len),
     };

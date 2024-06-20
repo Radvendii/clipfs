@@ -1,13 +1,32 @@
 const std = @import("std");
 const zeroes = std.mem.zeroes;
-// could do this
-// const l = std.os.linux;
 
 // TODO: there are a bunch of flags struct members that are unclear what flags are supported
 
 pub const VERSION = 7;
 pub const MINOR_VERSION = 39;
 pub const ROOT_ID = 1;
+
+pub const @"-E" = @"-E": {
+    const Type = std.builtin.Type;
+    // TODO: should this be std.os.linux.E, since we're interacting with the linux kernel?
+    // they're probably the same except for some weird edge case
+    const E = std.posix.E;
+    const fields = @typeInfo(E).Enum.fields;
+    var @"-fields": [fields.len]Type.EnumField = undefined;
+    for (fields, &@"-fields") |src, *dst| {
+        dst.* = .{
+            .name = src.name,
+            .value = -src.value,
+        };
+    }
+    break :@"-E" @Type(.{ .Enum = .{
+        .tag_type = i32,
+        .fields = &@"-fields",
+        .decls = &.{},
+        .is_exhaustive = false,
+    } });
+};
 
 // Make sure all structures are padded to 64bit boundary, so 32bit userspace works under 64bit kernels
 // TODO: is there a more ziggy way to do this?
@@ -644,7 +663,7 @@ pub const OutHeader = extern struct {
     len: u32,
     // TODO: does this have a more defined error type? totally unclear from the docs
     // TODO: look in the kernel
-    @"error": i32,
+    @"error": @"-E",
     unique: u64,
 };
 
