@@ -816,7 +816,7 @@ pub const SetupmappingIn = extern struct {
     pub const Flags = packed struct(u64) {
         write: bool = false,
         read: bool = false,
-        _padding: std.meta.Int(.unsigned, 32 - 2) = 0,
+        _padding: std.meta.Int(.unsigned, 64 - 2) = 0,
     };
 };
 
