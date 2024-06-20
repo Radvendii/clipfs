@@ -185,6 +185,122 @@ pub const OpCode = enum(c_uint) {
     // SEE: https://github.com/ziglang/zig/issues/20339
     cuse_init_bswap_reserved = 1048576, // @intFromEnum(OpCode.cuse_init) << 8,
     init_bswap_reserved = 436207616, // @intFromEnum(OpCode.init) << 24,
+
+    // Convenience functions to determine information associated with the OpCode. It is nice to use these along with `inline else`
+    // SEE: https://github.com/hanwen/go-fuse/blob/master/fuse/opcode.go
+
+    /// What struct do we send the kernel after the OutHeader when responding to this opcode
+    /// holding off on implementing this until it actually seems useful.
+    /// It's also not alwasy true. We might send an error, for example.
+    pub fn OutStruct(op: OpCode) ?type {
+        _ = op;
+        @compileError("TODO: implement");
+    }
+
+    /// What struct will the kernel send after the InHeader (or possible none)
+    pub fn InStruct(op: OpCode) ?type {
+        return switch (op) {
+            .flush => FlushIn,
+            .getattr => GetattrIn,
+            .getxattr, .listxattr => GetxattrIn,
+            .setattr => SetattrIn,
+            .init => InitIn,
+            .ioctl => IoctlIn,
+            .open => OpenIn,
+            .mknod => MknodIn,
+            .create => CreateIn,
+            .read, .readdir, .readdirplus => ReadIn,
+            .access => AccessIn,
+            .forget => ForgetIn,
+            .batch_forget => BatchForgetIn,
+            .link => LinkIn,
+            .mkdir => MkdirIn,
+            .release, .releasedir => ReleaseIn,
+            .fallocate => FallocateIn,
+            .rename => RenameIn,
+            .rename2 => Rename2In,
+            .write => WriteIn,
+            .fsync, .fsyncdir => FsyncIn,
+            .setxattr => SetxattrIn,
+            .getlk, .setlk, .setlkw => LkIn,
+            .interrupt => InterruptIn,
+            .bmap => BmapIn,
+            .poll => PollIn,
+            .lseek => LseekIn,
+            .copy_file_range => CopyFileRangeIn,
+            .setupmapping => SetupmappingIn,
+            .removemapping => RemovemappingIn,
+            .syncfs => SyncfsIn,
+            .statx => StatxIn,
+            .cuse_init => Cuse.InitIn,
+            .cuse_init_bswap_reserved => Cuse.InitIn,
+            .init_bswap_reserved => InitIn,
+            .notify_reply => NotifyRetrieveIn,
+            .removexattr, .destroy, .statfs, .opendir, .tmpfile, .readlink, .lookup, .unlink, .rmdir, .symlink => null,
+        };
+    }
+
+    /// How many file name arguments will the kernel send
+    pub fn nFiles(op: OpCode) u8 {
+        return switch (op) {
+            .flush,
+            .getattr,
+            .listxattr,
+            .setattr,
+            .init,
+            .ioctl,
+            .open,
+            .read,
+            .readdir,
+            .readdirplus,
+            .access,
+            .forget,
+            .batch_forget,
+            .release,
+            .releasedir,
+            .fallocate,
+            .write,
+            .fsync,
+            .fsyncdir,
+            .getlk,
+            .setlk,
+            .setlkw,
+            .interrupt,
+            .bmap,
+            .poll,
+            .lseek,
+            .copy_file_range,
+            .setupmapping,
+            .removemapping,
+            .syncfs,
+            .statx,
+            .cuse_init,
+            .cuse_init_bswap_reserved,
+            .init_bswap_reserved,
+            .notify_reply,
+            .destroy,
+            .statfs,
+            .opendir,
+            .tmpfile,
+            .readlink,
+            => 0,
+            .create,
+            .setxattr,
+            .getxattr,
+            .link,
+            .lookup,
+            .mkdir,
+            .mknod,
+            .removexattr,
+            .rmdir,
+            .unlink,
+            => 1,
+            .rename,
+            .rename2,
+            .symlink,
+            => 2,
+        };
+    }
 };
 pub const NotifyCode = enum(c_uint) {
     poll = 1,
