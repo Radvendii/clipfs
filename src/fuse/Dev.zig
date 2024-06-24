@@ -353,6 +353,10 @@ pub fn recv1(dev: *Dev) !void {
             try dev.flush_writer();
             Static.done = true;
         },
+        .releasedir => {
+            _ = try dev.reader().readStruct(kernel.ReleaseIn);
+            try dev.sendOut(header.unique, void);
+        },
         .lookup,
         .forget,
         .setattr,
@@ -377,7 +381,6 @@ pub fn recv1(dev: *Dev) !void {
         .flush,
         .init,
         .readdir,
-        .releasedir,
         .fsyncdir,
         .getlk,
         .setlk,
@@ -447,6 +450,10 @@ pub fn outSize(dev: *const Dev, comptime Data: type) usize {
 
 pub fn outBytes(dev: *const Dev, data_ptr: anytype) ![]const u8 {
     const Data = @typeInfo(@TypeOf(data_ptr)).Pointer.child;
+    // special case for sendOut(void);
+    if (Data == type)
+        if (data_ptr.* == void)
+            return &[0]u8{};
     const size = dev.outSize(Data);
     if (size == @sizeOf(Data)) {
         return std.mem.asBytes(data_ptr);
