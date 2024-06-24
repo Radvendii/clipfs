@@ -165,20 +165,89 @@ pub fn init() !Dev {
 pub fn recv1(dev: *Dev) !void {
     const header = try dev.reader().readStruct(kernel.InHeader);
     log.info("received header from kernel with opcode {}", .{header.opcode});
-    var rest = header.len;
+    // var rest = header.len;
     switch (header.opcode) {
-        inline else => |opcode| {
-            const MaybeInStruct = opcode.InStruct();
-            if (MaybeInStruct) |InStruct| {
-                const body = try dev.reader().readStruct(InStruct);
-                rest -= @sizeOf(InStruct);
-                log.info("received body: {}", .{body});
-            } else {
-                log.info("no body expected", .{});
-            }
-            // TODO: read file names
+        // inline else => |opcode| {
+        //     const MaybeInStruct = opcode.InStruct();
+        //     if (MaybeInStruct) |InStruct| {
+        //         const body = try dev.reader().readStruct(InStruct);
+        //         rest -= @sizeOf(InStruct);
+        //         log.info("received body: {}", .{body});
+        //     } else {
+        //         log.info("no body expected", .{});
+        //     }
 
+        //     const count = comptime opcode.nFiles();
+
+        //     // How does this work?
+        //     // is the rest of the `len` a filename?
+        //     // is it zero-terminated?
+        //     // what if there are two filenames?
+        //     // it seems like it might divide the remaining bytes evenly between the two.
+        //     // does that mean it's zero-terminated?
+        //     // SEE: https://github.com/hanwen/go-fuse/blob/master/fuse/request.go#L206
+        //     if (count > 0) {
+        //         log.err("TODO: implement code for handling operations that send filenames", .{});
+        //     }
+        //     std.debug.assert(rest == 0);
+        // },
+        .getattr => {
+            const getattr_in = try dev.reader().readStruct(kernel.GetattrIn);
+            log.info("received GetattrIn from the kernel: {}", .{getattr_in});
         },
+        .lookup,
+        .forget,
+        .setattr,
+        .readlink,
+        .symlink,
+        .mknod,
+        .mkdir,
+        .unlink,
+        .rmdir,
+        .rename,
+        .link,
+        .open,
+        .read,
+        .write,
+        .statfs,
+        .release,
+        .fsync,
+        .setxattr,
+        .getxattr,
+        .listxattr,
+        .removexattr,
+        .flush,
+        .init,
+        .opendir,
+        .readdir,
+        .releasedir,
+        .fsyncdir,
+        .getlk,
+        .setlk,
+        .setlkw,
+        .access,
+        .create,
+        .interrupt,
+        .bmap,
+        .destroy,
+        .ioctl,
+        .poll,
+        .notify_reply,
+        .batch_forget,
+        .fallocate,
+        .readdirplus,
+        .rename2,
+        .lseek,
+        .copy_file_range,
+        .setupmapping,
+        .removemapping,
+        .syncfs,
+        .tmpfile,
+        .statx,
+        .cuse_init,
+        .cuse_init_bswap_reserved,
+        .init_bswap_reserved,
+        => std.debug.panic("TODO: implement Dev.recv1() for {s}", .{@tagName(header.opcode)}),
     }
 }
 
