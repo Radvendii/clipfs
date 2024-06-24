@@ -810,6 +810,7 @@ pub const InHeader = extern struct {
     uid: std.os.linux.uid_t,
     gid: std.os.linux.gid_t,
     pid: std.os.linux.pid_t,
+    /// length of extensions in 8byte units
     total_extlen: u16,
     padding: u16 = zeroes(u16),
 };

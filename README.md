@@ -75,6 +75,7 @@
 - https://nuetzlich.net/the-fuse-wire-protocol/
 - https://github.com/hanwen/go-fuse/blob/master/fuse/opcode.go
 - http://ptspts.blogspot.com/2009/11/fuse-protocol-tutorial-for-linux-26.html
+- https://stackoverflow.com/questions/11071996/what-are-inode-generation-numbers
 - Read the kernel source code.
 
 

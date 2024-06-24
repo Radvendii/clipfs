@@ -208,10 +208,9 @@ pub fn recv1(dev: *Dev) !void {
 
         //     // How does this work?
         //     // is the rest of the `len` a filename?
-        //     // is it zero-terminated?
+        //     // is it zero-terminated? YES IT IS
         //     // what if there are two filenames?
         //     // it seems like it might divide the remaining bytes evenly between the two.
-        //     // does that mean it's zero-terminated?
         //     // SEE: https://github.com/hanwen/go-fuse/blob/master/fuse/request.go#L206
         //     if (count > 0) {
         //         log.err("TODO: implement code for handling operations that send filenames", .{});
