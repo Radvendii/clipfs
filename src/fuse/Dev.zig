@@ -1,9 +1,9 @@
 const std = @import("std");
 const log = std.log.scoped(.fuse);
 
-pub const kernel = @import("kernel_api.zig");
+pub const kernel = @import("kernel.zig");
 
-const Self = @This();
+const Dev = @This();
 
 // really belongs in std.io
 // TODO: upstream
@@ -18,28 +18,28 @@ pub const READ_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
 /// of an entire message (header + body). Otherwise it will return EINVAL.
 pub const WRITE_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
 
-dev: std.fs.File,
+fh: std.fs.File,
 _reader: std.io.BufferedReader(READ_BUF_SIZE, std.fs.File.Reader),
 _writer: std.io.BufferedWriter(WRITE_BUF_SIZE, std.fs.File.Writer),
 version: struct { major: u32, minor: u32 },
 
-pub inline fn reader(self: *Self) @TypeOf(self._reader).Reader {
-    return self._reader.reader();
+pub inline fn reader(dev: *Dev) @TypeOf(dev._reader).Reader {
+    return dev._reader.reader();
 }
-pub inline fn writer(self: *Self) @TypeOf(self._writer).Writer {
-    return self._writer.writer();
+pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
+    return dev._writer.writer();
 }
-pub inline fn flush_writer(self: *Self) !void {
-    return self._writer.flush();
+pub inline fn flush_writer(dev: *Dev) !void {
+    return dev._writer.flush();
 }
 
-pub fn init() !Self {
-    const dev = try std.fs.openFileAbsolute("/dev/fuse", .{ .mode = .read_write });
-    errdefer dev.close();
+pub fn init() !Dev {
+    const fh = try std.fs.openFileAbsolute("/dev/fuse", .{ .mode = .read_write });
+    errdefer fh.close();
 
     var buf: [256]u8 = undefined;
     const mount_args: [:0]u8 = try std.fmt.bufPrintZ(&buf, "fd={d},rootmode={o},user_id={d},group_id={d}", .{
-        dev.handle,
+        fh.handle,
         std.posix.S.IFDIR,
         std.os.linux.geteuid(),
         std.os.linux.getegid(),
@@ -62,14 +62,14 @@ pub fn init() !Self {
     }
     errdefer unmount() catch @panic("failed to unmount");
 
-    const reader_unbuffered = dev.reader();
+    const reader_unbuffered = fh.reader();
     const _reader = std.io.bufferedReaderSize(READ_BUF_SIZE, reader_unbuffered);
 
-    const writer_unbuffered = dev.writer();
+    const writer_unbuffered = fh.writer();
     const _writer = bufferedWriterSize(WRITE_BUF_SIZE, writer_unbuffered);
 
-    var self = Self{
-        .dev = dev,
+    var dev = Dev{
+        .fh = fh,
         ._reader = _reader,
         ._writer = _writer,
         // Initial version. This will get modified when we exchange Init structs with the kernel
@@ -81,7 +81,7 @@ pub fn init() !Self {
 
     // init exchange
 
-    var in_header = try self.reader().readStruct(kernel.InHeader);
+    var in_header = try dev.reader().readStruct(kernel.InHeader);
     std.debug.assert(in_header.opcode == .init);
 
     const extraneous = in_header.len - (@sizeOf(kernel.InHeader) + @sizeOf(kernel.InitIn));
@@ -92,11 +92,11 @@ pub fn init() !Self {
         log.warn("Kernel's init message is too big by {} bytes. This may be a newer version of the kernel. Will attempt to plow ahead and treat the first bytes as the InitIn we understand and then ignore subsequent bytes.", .{extraneous});
     }
 
-    var init_in = try self.reader().readStruct(kernel.InitIn);
+    var init_in = try dev.reader().readStruct(kernel.InitIn);
     log.debug("received init from kernel: {}", .{std.json.fmt(init_in, .{ .whitespace = .indent_2 })});
 
     if (extraneous > 0) {
-        _ = try self.reader().skipBytes(extraneous, .{});
+        _ = try dev.reader().skipBytes(extraneous, .{});
         log.warn("skipped {} bytes from kernel (InitIn struct was too big)", .{extraneous});
     }
 
@@ -113,37 +113,37 @@ pub fn init() !Self {
     // supported by the daemon.  The kernel will then issue a new FUSE_INIT
     // request conforming to the older version.  In the reverse case, the daemon
     // should quietly fall back to the kernel's major version.
-    if (init_in.major > self.version.major) {
-        try self.writer().writeStruct(kernel.OutHeader{
+    if (init_in.major > dev.version.major) {
+        try dev.writer().writeStruct(kernel.OutHeader{
             .unique = in_header.unique,
             .@"error" = .SUCCESS,
             .len = @sizeOf(kernel.OutHeader) + @sizeOf(u32),
         });
-        try self.writer().writeInt(u32, kernel.VERSION, @import("builtin").target.cpu.arch.endian());
-        try self.flush_writer();
+        try dev.writer().writeInt(u32, kernel.VERSION, @import("builtin").target.cpu.arch.endian());
+        try dev.flush_writer();
 
-        in_header = try self.reader().readStruct(kernel.InHeader);
+        in_header = try dev.reader().readStruct(kernel.InHeader);
         std.debug.assert(in_header.opcode == .init);
         // at this point the kernel shouldn't send us incompatible structs
         std.debug.assert(in_header.len == @sizeOf(kernel.InHeader) + @sizeOf(kernel.InitIn));
-        init_in = try self.reader().readStruct(kernel.InitIn);
+        init_in = try dev.reader().readStruct(kernel.InitIn);
         // TODO: will this ever be <=?
-        std.debug.assert(init_in.major == self.version.major);
+        std.debug.assert(init_in.major == dev.version.major);
     }
 
     // the kernel is on an old version, we'll cede to it.
-    if (init_in.major < self.version.major) {
-        self.version = .{
+    if (init_in.major < dev.version.major) {
+        dev.version = .{
             .major = init_in.major,
             .minor = init_in.minor,
         };
-    } else if (init_in.minor < self.version.minor) {
-        self.version.minor = init_in.minor;
+    } else if (init_in.minor < dev.version.minor) {
+        dev.version.minor = init_in.minor;
     }
 
-    try self.sendOut(in_header.unique, kernel.InitOut{
-        .major = self.version.major,
-        .minor = self.version.minor,
+    try dev.sendOut(in_header.unique, kernel.InitOut{
+        .major = dev.version.major,
+        .minor = dev.version.minor,
         .max_readahead = init_in.max_readahead,
 
         // TODO: presumably we should only set the flags we actually want to support
@@ -159,17 +159,19 @@ pub fn init() !Self {
         .max_pages = 1,
         .map_alignment = 1,
     });
-    return self;
+    return dev;
 }
 
-pub fn recv1(self: *Self) !void {
-    const header = try self.reader().readStruct(kernel.InHeader);
+pub fn recv1(dev: *Dev) !void {
+    const header = try dev.reader().readStruct(kernel.InHeader);
     log.info("received header from kernel with opcode {}", .{header.opcode});
+    var rest = header.len;
     switch (header.opcode) {
         inline else => |opcode| {
             const MaybeInStruct = opcode.InStruct();
             if (MaybeInStruct) |InStruct| {
-                const body = try self.reader().readStruct(InStruct);
+                const body = try dev.reader().readStruct(InStruct);
+                rest -= @sizeOf(InStruct);
                 log.info("received body: {}", .{body});
             } else {
                 log.info("no body expected", .{});
@@ -182,10 +184,10 @@ pub fn recv1(self: *Self) !void {
 
 // TODO: if we put the version number of the change into the COMPAT_SIZE name, we can comptime automate this whole thing
 // TODO: we could allow for sending ints here. i'm a little wary of that because it's such an unusual thing to do that i don't want to bog down the "normal" function with it or give the impression it's a normal thing
-pub fn outSize(self: *const Self, comptime Data: type) usize {
+pub fn outSize(dev: *const Dev, comptime Data: type) usize {
     switch (Data) {
         kernel.InitOut => {
-            return switch (self.version.minor) {
+            return switch (dev.version.minor) {
                 0...4 => kernel.InitOut.COMPAT_SIZE,
                 5...22 => kernel.InitOut.COMPAT_22_SIZE,
                 else => @sizeOf(Data),
@@ -211,23 +213,18 @@ pub fn outSize(self: *const Self, comptime Data: type) usize {
         kernel.LseekOut,
         => @compileError("TODO: check what the compat sizes are for " ++ @typeName(Data)),
 
-        // => {
-        //     try self.writer.writeStruct(header);
-        //     try self.writer.writeStruct(data);
-        // },
-
         else => @compileError("Unsupported send operation on type " ++ @typeName(Data)),
     }
 }
 
-pub fn outBytes(self: *const Self, data_ptr: anytype) ![]const u8 {
+pub fn outBytes(dev: *const Dev, data_ptr: anytype) ![]const u8 {
     const Data = @typeInfo(@TypeOf(data_ptr)).Pointer.child;
-    const size = self.outSize(Data);
+    const size = dev.outSize(Data);
     if (size == @sizeOf(Data)) {
         return std.mem.asBytes(data_ptr);
     }
     if (size < @sizeOf(Data)) {
-        log.debug("Truncating {s} to {} bytes due to old protocol version {}.{}", .{ @typeName(Data), size, self.version.major, self.version.minor });
+        log.debug("Truncating {s} to {} bytes due to old protocol version {}.{}", .{ @typeName(Data), size, dev.version.major, dev.version.minor });
         return std.mem.asBytes(data_ptr)[0..size];
     }
     if (size > @sizeOf(Data)) {
@@ -237,22 +234,22 @@ pub fn outBytes(self: *const Self, data_ptr: anytype) ![]const u8 {
     unreachable;
 }
 
-pub fn sendOut(self: *Self, unique: u64, data: anytype) !void {
+pub fn sendOut(dev: *Dev, unique: u64, data: anytype) !void {
     log.info("Sending to kernel: {}", .{data});
     // Normally, we just send the struct.
     // Two things make the size unpredictable:
     // 1. compatibilty with older protocol versions means we might have to truncate it
     // 2. flexible array members are not of compile-time known size
-    const out_bytes = try self.outBytes(&data);
+    const out_bytes = try dev.outBytes(&data);
 
     const header = kernel.OutHeader{
         .@"error" = .SUCCESS,
         .unique = unique,
         .len = @intCast(@sizeOf(kernel.OutHeader) + out_bytes.len),
     };
-    try self.writer().writeStruct(header);
-    try self.writer().writeAll(out_bytes);
-    try self.flush_writer();
+    try dev.writer().writeStruct(header);
+    try dev.writer().writeAll(out_bytes);
+    try dev.flush_writer();
 }
 
 pub fn unmount() !void {
@@ -265,7 +262,7 @@ pub fn unmount() !void {
     }
 }
 
-pub fn deinit(self: Self) !void {
+pub fn deinit(dev: Dev) !void {
     try unmount();
-    self.dev.close();
+    dev.fh.close();
 }

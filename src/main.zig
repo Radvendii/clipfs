@@ -2,14 +2,14 @@ const std = @import("std");
 // const fuse = @import("fuse.zig");
 // const FuseOps = @import("FuseOps.zig");
 // const Clipboard = @import("Clipboard.zig");
-const Fuse = @import("fuse/Fuse.zig");
+const Dev = @import("fuse/Dev.zig");
 
 pub fn main() !void {
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // defer std.debug.assert(gpa.deinit() == .ok);
     // const alloc = gpa.allocator();
 
-    var fuse = try Fuse.init();
+    var fuse = try Dev.init();
     defer fuse.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
     try fuse.recv1();
 
