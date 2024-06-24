@@ -164,8 +164,8 @@ pub fn init() !Dev {
 
 pub fn recv1(dev: *Dev) !void {
     const header = try dev.reader().readStruct(kernel.InHeader);
-    log.info("received header from kernel with opcode {}", .{header.opcode});
-    // var rest = header.len;
+    log.info("received header from kernel: {}", .{header});
+    var rest = header.len - @sizeOf(kernel.InHeader);
     switch (header.opcode) {
         // inline else => |opcode| {
         //     const MaybeInStruct = opcode.InStruct();
@@ -194,6 +194,44 @@ pub fn recv1(dev: *Dev) !void {
         .getattr => {
             const getattr_in = try dev.reader().readStruct(kernel.GetattrIn);
             log.info("received GetattrIn from the kernel: {}", .{getattr_in});
+            rest -= @sizeOf(kernel.GetattrIn);
+            std.debug.assert(rest == 0);
+            std.debug.assert(header.nodeid == kernel.ROOT_ID);
+            // don't know how to deal with this yet
+            std.debug.assert(getattr_in.getattr_flags.fh == false);
+
+            switch (header.nodeid) {
+                kernel.ROOT_ID => {
+                    try dev.sendOut(header.unique, kernel.AttrOut{
+                        // can i send an "invalidate" signal to the kernel?
+                        .attr_valid = 0,
+                        .attr_valid_nsec = 0,
+                        .attr = .{
+                            // no relation to nodeid. so what is it?
+                            .ino = 1,
+                            .size = 0,
+                            .blocks = 0,
+                            .atime = 0,
+                            .atimensec = 0,
+                            .mtime = 0,
+                            .mtimensec = 0,
+                            .ctime = 0,
+                            .ctimensec = 0,
+                            .mode = std.posix.S.IFDIR | 0o0755,
+                            .nlink = 1,
+                            .uid = 0,
+                            .gid = 0,
+                            .rdev = 0,
+                            .blksize = 0,
+                            .flags = .{
+                                .submount = false,
+                                .dax = false,
+                            },
+                        },
+                    });
+                },
+                else => try dev.sendErr(header.unique, .NOENT),
+            }
         },
         .lookup,
         .forget,
@@ -255,16 +293,17 @@ pub fn recv1(dev: *Dev) !void {
 // TODO: we could allow for sending ints here. i'm a little wary of that because it's such an unusual thing to do that i don't want to bog down the "normal" function with it or give the impression it's a normal thing
 pub fn outSize(dev: *const Dev, comptime Data: type) usize {
     switch (Data) {
-        kernel.InitOut => {
-            return switch (dev.version.minor) {
-                0...4 => kernel.InitOut.COMPAT_SIZE,
-                5...22 => kernel.InitOut.COMPAT_22_SIZE,
-                else => @sizeOf(Data),
-            };
+        kernel.InitOut => return switch (dev.version.minor) {
+            0...4 => kernel.InitOut.COMPAT_SIZE,
+            5...22 => kernel.InitOut.COMPAT_22_SIZE,
+            else => @sizeOf(Data),
+        },
+        kernel.AttrOut => return switch (dev.version.minor) {
+            0...8 => kernel.AttrOut.COMPAT_SIZE,
+            else => @sizeOf(Data),
         },
 
         kernel.EntryOut,
-        kernel.AttrOut,
         kernel.StatxOut,
         kernel.OpenOut,
         kernel.WriteOut,
@@ -318,6 +357,16 @@ pub fn sendOut(dev: *Dev, unique: u64, data: anytype) !void {
     };
     try dev.writer().writeStruct(header);
     try dev.writer().writeAll(out_bytes);
+    try dev.flush_writer();
+}
+
+pub fn sendErr(dev: *Dev, unique: u64, err: kernel.@"-E") !void {
+    log.info("Sending error to kernel: E{s}", .{@tagName(err)});
+    try dev.writer().writeStruct(kernel.OutHeader{
+        .unique = unique,
+        .@"error" = err,
+        .len = @sizeOf(kernel.OutHeader),
+    });
     try dev.flush_writer();
 }
 

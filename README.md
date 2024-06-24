@@ -74,6 +74,7 @@
 - http://libfuse.github.io/doxygen/structfuse__operations.html
 - https://nuetzlich.net/the-fuse-wire-protocol/
 - https://github.com/hanwen/go-fuse/blob/master/fuse/opcode.go
+- http://ptspts.blogspot.com/2009/11/fuse-protocol-tutorial-for-linux-26.html
 - Read the kernel source code.
 
 

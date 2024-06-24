@@ -5,6 +5,7 @@ const zeroes = std.mem.zeroes;
 
 pub const VERSION = 7;
 pub const MINOR_VERSION = 39;
+// the nodeid of the root filesystem
 pub const ROOT_ID = 1;
 
 /// errno values are technically defined to be positive. However, as return
@@ -70,7 +71,7 @@ pub const Attr = extern struct {
         /// enable DAX for this file in per inode DAX mode
         dax: bool = false,
 
-        _padding: std.meta.Int(.unsigned, 32 - 25) = 0,
+        _padding: std.meta.Int(.unsigned, 32 - 2) = 0,
     };
 };
 /// The following structures are bit-for-bit compatible with the statx(2) ABI in Linux
@@ -347,7 +348,9 @@ pub const GetattrIn = extern struct {
     fh: u64,
 };
 pub const AttrOut = extern struct {
+    // attribute cache duration seconds
     attr_valid: u64,
+    // attribute cache duration nanoseconds
     attr_valid_nsec: u32,
     dummy: u32 = zeroes(u32),
     attr: Attr,
