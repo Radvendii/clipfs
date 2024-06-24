@@ -2,14 +2,9 @@ const std = @import("std");
 const log = std.log.scoped(.fuse);
 
 pub const kernel = @import("kernel.zig");
+pub const buffered_writer = @import("buffered_writer.zig");
 
 const Dev = @This();
-
-// really belongs in std.io
-// TODO: upstream
-fn bufferedWriterSize(comptime size: usize, unbuffered_writer: anytype) std.io.BufferedWriter(size, @TypeOf(unbuffered_writer)) {
-    return .{ .unbuffered_writer = unbuffered_writer };
-}
 
 /// Must be > MIN_READ_BUFFER. The kernel wants to read/write in discrete units
 /// of an entire message (header + body). Otherwise it will return EINVAL.
@@ -18,9 +13,18 @@ pub const READ_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
 /// of an entire message (header + body). Otherwise it will return EINVAL.
 pub const WRITE_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
 
+const WRITER_OPTS = buffered_writer.BufferedWriterOptions{
+    .buffer_size = WRITE_BUF_SIZE,
+    // everything here is at most align(@sizeOf(u64)), and it will be convenient to be able to @ptrCast() the buffer
+    .buffer_align = @sizeOf(u64),
+    // The point of the buffer is to ensure we don't send partial packets to the kernel. If we write past the end of the buffer, that's an error.
+    .automatic_flush = false,
+};
+
 fh: std.fs.File,
 _reader: std.io.BufferedReader(READ_BUF_SIZE, std.fs.File.Reader),
-_writer: std.io.BufferedWriter(WRITE_BUF_SIZE, std.fs.File.Writer),
+// TODO: we do not want auto-flushing. it should return an error if we hit the end of the buffer.
+_writer: buffered_writer.BufferedWriter(std.fs.File.Writer, WRITER_OPTS),
 version: struct { major: u32, minor: u32 },
 
 pub inline fn reader(dev: *Dev) @TypeOf(dev._reader).Reader {
@@ -30,7 +34,10 @@ pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
     return dev._writer.writer();
 }
 pub inline fn flush_writer(dev: *Dev) !void {
-    return dev._writer.flush();
+    return dev._writer.flush() catch |err| {
+        log.err("problem writing to kernel: {}", .{err});
+        return err;
+    };
 }
 
 pub fn init() !Dev {
@@ -66,7 +73,7 @@ pub fn init() !Dev {
     const _reader = std.io.bufferedReaderSize(READ_BUF_SIZE, reader_unbuffered);
 
     const writer_unbuffered = fh.writer();
-    const _writer = bufferedWriterSize(WRITE_BUF_SIZE, writer_unbuffered);
+    const _writer = buffered_writer.bufferedWriterOpts(writer_unbuffered, WRITER_OPTS);
 
     var dev = Dev{
         .fh = fh,
@@ -244,7 +251,7 @@ pub fn recv1(dev: *Dev) !void {
             switch (header.nodeid) {
                 kernel.ROOT_ID => {
                     try dev.sendOut(header.unique, kernel.OpenOut{
-                        .fh = 0,
+                        .fh = 1,
                         .open_flags = .{},
                     });
                 },
@@ -252,6 +259,63 @@ pub fn recv1(dev: *Dev) !void {
                     log.warn("received OpenIn for non-existent nodeid {}", .{header.nodeid});
                 },
             }
+        },
+        .readdirplus => {
+            const readdirplus_in = try dev.reader().readStruct(kernel.ReadIn);
+            log.info("received ReaddirplusIn from the kernel: {}", .{readdirplus_in});
+            if (readdirplus_in.offset != 0) std.debug.panic("TODO: implement dealing with non-zero offset in readdirplus", .{});
+            const name = "hello";
+            // TODO: for more than one entry, we will need to implement sendOut for []EntryOut
+            // FAM means we probably need to just send a []u8 here
+
+            try dev.writer().writeStruct(kernel.OutHeader{
+                .@"error" = .SUCCESS,
+                .len = @sizeOf(kernel.OutHeader),
+                .unique = header.unique,
+            });
+            var out_header = @as(*kernel.OutHeader, @ptrCast(&dev._writer.buf));
+            try dev.writer().writeStruct(kernel.DirentPlus{
+                .entryOut = .{
+                    .nodeid = 0,
+                    .generation = 0,
+                    .entry_valid = 0,
+                    .entry_valid_nsec = 0,
+                    .attr_valid = 0,
+                    .attr_valid_nsec = 0,
+                    .attr = .{
+                        .ino = 1,
+                        .size = "hello".len,
+                        .blocks = 0,
+                        .atime = 0,
+                        .atimensec = 0,
+                        .mtime = 0,
+                        .mtimensec = 0,
+                        .ctime = 0,
+                        .ctimensec = 0,
+                        .mode = std.posix.S.IFREG | 0o0755,
+                        .nlink = 1,
+                        .uid = 0,
+                        .gid = 0,
+                        .rdev = 0,
+                        .blksize = 0,
+                        .flags = .{
+                            .submount = false,
+                            .dax = false,
+                        },
+                    },
+                },
+                .dirent = .{
+                    .ino = 1,
+                    .off = 0,
+                    .type = .REG,
+                    .namelen = name.len,
+                },
+            });
+            out_header.len += @sizeOf(kernel.DirentPlus);
+            try dev.writer().writeAll(name);
+            out_header.len += @sizeOf(@TypeOf(name));
+
+            try dev.flush_writer();
         },
         .lookup,
         .forget,
@@ -292,7 +356,6 @@ pub fn recv1(dev: *Dev) !void {
         .notify_reply,
         .batch_forget,
         .fallocate,
-        .readdirplus,
         .rename2,
         .lseek,
         .copy_file_range,
@@ -322,6 +385,8 @@ pub fn outSize(dev: *const Dev, comptime Data: type) usize {
             else => @sizeOf(Data),
         },
         kernel.OpenOut => return @sizeOf(Data),
+
+        kernel.Dirent, kernel.DirentPlus => @compileError(@typeName(Data) ++ " output size must be handled manually"),
 
         kernel.EntryOut,
         kernel.StatxOut,

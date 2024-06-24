@@ -45,6 +45,26 @@ pub const @"-E" = @"-E": {
     } });
 };
 
+// For some reason in std, DT is just a bunch of `const`s, rather than an enum. Here we turn it into an enum.
+// TODO: upstream
+pub const DT = DT: {
+    const Type = std.builtin.Type;
+    const posixDT = @typeInfo(std.posix.DT).Struct;
+    var fields: [posixDT.decls.len]Type.EnumField = undefined;
+    for (posixDT.decls, &fields) |src, *dst| {
+        dst.* = .{
+            .name = src.name,
+            .value = @field(std.posix.DT, src.name),
+        };
+    }
+    break :DT @Type(.{ .Enum = .{
+        .tag_type = u32,
+        .fields = &fields,
+        .decls = &.{},
+        .is_exhaustive = false,
+    } });
+};
+
 // Make sure all structures are padded to 64bit boundary, so 32bit userspace works under 64bit kernels
 // TODO: is there a more ziggy way to do this?
 
@@ -834,8 +854,8 @@ pub const Dirent = extern struct {
     ino: u64,
     off: u64,
     namelen: u32,
-    type: u32,
-    _name: [0]u8,
+    type: DT,
+    _name: [0]u8 = zeroes([0]u8),
 
     /// size, if properly aligned
     pub fn size(self: *const Dirent) usize {
