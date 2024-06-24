@@ -436,12 +436,11 @@ pub const OpenInFlags = packed struct(u32) {
     _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 pub const OpenIn = extern struct {
-    // TODO: are both of these the same set of Flags?
-    flags: OpenInFlags,
+    flags: std.posix.O,
     open_flags: OpenInFlags,
 };
 pub const CreateIn = extern struct {
-    flags: u32,
+    flags: std.posix.O,
     mode: u32,
     umask: u32,
     open_flags: OpenInFlags,

@@ -196,7 +196,6 @@ pub fn recv1(dev: *Dev) !void {
             log.info("received GetattrIn from the kernel: {}", .{getattr_in});
             rest -= @sizeOf(kernel.GetattrIn);
             std.debug.assert(rest == 0);
-            std.debug.assert(header.nodeid == kernel.ROOT_ID);
             // don't know how to deal with this yet
             std.debug.assert(getattr_in.getattr_flags.fh == false);
 
@@ -230,7 +229,28 @@ pub fn recv1(dev: *Dev) !void {
                         },
                     });
                 },
-                else => try dev.sendErr(header.unique, .NOENT),
+                else => {
+                    log.warn("received GetattrIn for non-existent nodeid {}", .{header.nodeid});
+                    try dev.sendErr(header.unique, .NOENT);
+                },
+            }
+        },
+        .opendir => {
+            const open_in = try dev.reader().readStruct(kernel.OpenIn);
+            log.info("received OpenIn from the kernel: {}", .{open_in});
+            rest -= @sizeOf(kernel.OpenIn);
+            std.debug.assert(rest == 0);
+
+            switch (header.nodeid) {
+                kernel.ROOT_ID => {
+                    try dev.sendOut(header.unique, kernel.OpenOut{
+                        .fh = 0,
+                        .open_flags = .{},
+                    });
+                },
+                else => {
+                    log.warn("received OpenIn for non-existent nodeid {}", .{header.nodeid});
+                },
             }
         },
         .lookup,
@@ -256,7 +276,6 @@ pub fn recv1(dev: *Dev) !void {
         .removexattr,
         .flush,
         .init,
-        .opendir,
         .readdir,
         .releasedir,
         .fsyncdir,
@@ -302,10 +321,10 @@ pub fn outSize(dev: *const Dev, comptime Data: type) usize {
             0...8 => kernel.AttrOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
+        kernel.OpenOut => return @sizeOf(Data),
 
         kernel.EntryOut,
         kernel.StatxOut,
-        kernel.OpenOut,
         kernel.WriteOut,
         kernel.StatfsOut,
         kernel.GetxattrOut,
