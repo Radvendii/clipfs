@@ -340,15 +340,15 @@ pub fn recv1(dev: *Dev) !void {
                 },
             });
             const dirent_plus: *kernel.DirentPlus = @alignCast(@ptrCast(&dev._writer.buf[out_header.len]));
+            out_header.len += @sizeOf(kernel.DirentPlus);
+
             // TODO: writeAllSentinel() would be nice
             // or maybe fn std.mem.withSentinel([:0]const T) []const T
             try dev.writer().writeAll(name[0 .. name.len + 1]);
+            out_header.len += @intCast(name.len + 1);
+
             std.debug.assert(std.mem.eql(u8, dirent_plus.dirent.name(), name));
-            _ = try dev.padWrite();
-            // TODO: shuffling these around causes EINVAL
-            out_header.len += @intCast(dirent_plus.size());
-            // out_header.len += @sizeOf(kernel.DirentPlus);
-            // out_header.len += @sizeOf(@TypeOf(name));
+            out_header.len += @intCast(try dev.padWrite());
 
             try dev.flush_writer();
             Static.done = true;
