@@ -821,13 +821,15 @@ pub const OutHeader = extern struct {
     unique: u64,
 };
 
-/// align up (ceil) to the nearest u64
+/// align up (ceil) to the nearest 64 bits
 /// this is FUSE_REC_ALIGN / FUSE_DIRENT_ALIGN in the C header
-pub fn alignU64(x: usize) usize {
-    return x + @sizeOf(u64) - 1 & ~(@sizeOf(u64) - 1);
+pub inline fn align64(x: anytype) @TypeOf(x) {
+    const lower_bits: @TypeOf(x) = @intCast(@sizeOf(u64) - 1);
+    const upper_bits: @TypeOf(x) = ~lower_bits;
+    return (x + lower_bits) & upper_bits;
 }
 // TODO: consider using std.mem.CopyPtrAttrs
-fn TransferConstVolatile(BasePtr: type, ConstVolatilePtr: type) !type {
+fn TransferConstVolatile(BasePtr: type, ConstVolatilePtr: type) type {
     switch (@typeInfo(BasePtr)) {
         .Pointer => |base_ptr| {
             switch (@typeInfo(ConstVolatilePtr)) {
@@ -859,16 +861,16 @@ pub const Dirent = extern struct {
 
     /// size, if properly aligned
     pub fn size(self: *const Dirent) usize {
-        return alignU64(NAME_OFFSET + self.namelen);
+        return align64(NAME_OFFSET + self.namelen);
     }
 
     pub const NAME_OFFSET = @offsetOf(Dirent, "_name");
 
     fn NameType(comptime SelfType: type) type {
-        switch (@typeInfo(SelfType)) {
-            .Pointer => TransferConstVolatile([]u8, SelfType),
+        return switch (@typeInfo(SelfType)) {
+            .Pointer => TransferConstVolatile([:0]u8, SelfType),
             else => @compileError("Flexible Array Members can only be accessed via a pointer"),
-        }
+        };
     }
     /// Gets access to the flexible array member @name.
     /// Zig doesn't really have FAMs, so we simulate it here.
@@ -879,7 +881,7 @@ pub const Dirent = extern struct {
             TransferConstVolatile([*]u8, @TypeOf(self)),
             @ptrCast(&self._name),
         );
-        return manyPtr[0..self.namelen];
+        return manyPtr[0..self.namelen :0];
     }
     // this seems higher-level than belongs here
     // pub fn setName(self: *Dirent, new_name: []const u8) void {
@@ -892,7 +894,7 @@ pub const DirentPlus = extern struct {
     dirent: Dirent = zeroes(Dirent),
     pub const NAME_OFFSET = @offsetOf(DirentPlus, "dirent") + Dirent.NAME_OFFSET;
     pub fn size(self: *const DirentPlus) usize {
-        return alignU64(NAME_OFFSET + self.dirent.namelen);
+        return align64(NAME_OFFSET + self.dirent.namelen);
     }
 };
 pub const NotifyInvalInodeOut = extern struct {

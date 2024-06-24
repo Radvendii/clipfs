@@ -16,7 +16,7 @@ pub const WRITE_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
 const WRITER_OPTS = buffered_writer.BufferedWriterOptions{
     .buffer_size = WRITE_BUF_SIZE,
     // everything here is at most align(@sizeOf(u64)), and it will be convenient to be able to @ptrCast() the buffer
-    .buffer_align = @sizeOf(u64),
+    .buffer_align = @alignOf(u64),
     // The point of the buffer is to ensure we don't send partial packets to the kernel. If we write past the end of the buffer, that's an error.
     .automatic_flush = false,
 };
@@ -33,7 +33,27 @@ pub inline fn reader(dev: *Dev) @TypeOf(dev._reader).Reader {
 pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
     return dev._writer.writer();
 }
+
+pub const Align64 = struct {
+    pub const next = kernel.align64;
+    pub fn fill(x: anytype) @TypeOf(x) {
+        const lower_bits: @TypeOf(x) = @alignOf(u64) - 1;
+        return (~x +% 1) & lower_bits;
+    }
+    pub fn aligned(x: anytype) bool {
+        const lower_bits: @TypeOf(x) = @alignOf(u64) - 1;
+        return (x & lower_bits) == 0;
+    }
+};
+/// how many bits need to be added to reach the nearest 64-bit aligned number
+pub inline fn padWrite(dev: *Dev) !usize {
+    const fill = Align64.fill(dev._writer.end);
+    try dev.writer().writeByteNTimes('\x00', fill);
+    return fill;
+}
 pub inline fn flush_writer(dev: *Dev) !void {
+    if (!Align64.aligned(dev._writer.end))
+        return error.UnalignedSend;
     return dev._writer.flush() catch |err| {
         log.err("problem writing to kernel: {}", .{err});
         return err;
@@ -261,9 +281,13 @@ pub fn recv1(dev: *Dev) !void {
             }
         },
         .readdirplus => {
+            const Static = struct {
+                var done: bool = false;
+            };
             const readdirplus_in = try dev.reader().readStruct(kernel.ReadIn);
             log.info("received ReaddirplusIn from the kernel: {}", .{readdirplus_in});
             if (readdirplus_in.offset != 0) std.debug.panic("TODO: implement dealing with non-zero offset in readdirplus", .{});
+            if (header.nodeid != kernel.ROOT_ID) std.debug.panic("readdirplus not implemented for any nodeid besides ROOT_ID", .{});
             const name = "hello";
             // TODO: for more than one entry, we will need to implement sendOut for []EntryOut
             // FAM means we probably need to just send a []u8 here
@@ -273,7 +297,11 @@ pub fn recv1(dev: *Dev) !void {
                 .len = @sizeOf(kernel.OutHeader),
                 .unique = header.unique,
             });
-            var out_header = @as(*kernel.OutHeader, @ptrCast(&dev._writer.buf));
+            var out_header: *kernel.OutHeader = @ptrCast(&dev._writer.buf);
+            if (Static.done) {
+                try dev.flush_writer();
+                return;
+            }
             try dev.writer().writeStruct(kernel.DirentPlus{
                 .entryOut = .{
                     .nodeid = 0,
@@ -305,17 +333,25 @@ pub fn recv1(dev: *Dev) !void {
                     },
                 },
                 .dirent = .{
-                    .ino = 1,
+                    .ino = 5,
                     .off = 0,
                     .type = .REG,
                     .namelen = name.len,
                 },
             });
-            out_header.len += @sizeOf(kernel.DirentPlus);
-            try dev.writer().writeAll(name);
-            out_header.len += @sizeOf(@TypeOf(name));
+            const dirent_plus: *kernel.DirentPlus = @alignCast(@ptrCast(&dev._writer.buf[out_header.len]));
+            // TODO: writeAllSentinel() would be nice
+            // or maybe fn std.mem.withSentinel([:0]const T) []const T
+            try dev.writer().writeAll(name[0 .. name.len + 1]);
+            std.debug.assert(std.mem.eql(u8, dirent_plus.dirent.name(), name));
+            _ = try dev.padWrite();
+            // TODO: shuffling these around causes EINVAL
+            out_header.len += @intCast(dirent_plus.size());
+            // out_header.len += @sizeOf(kernel.DirentPlus);
+            // out_header.len += @sizeOf(@TypeOf(name));
 
             try dev.flush_writer();
+            Static.done = true;
         },
         .lookup,
         .forget,
