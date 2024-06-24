@@ -11,7 +11,9 @@ pub fn main() !void {
 
     var fuse = try Dev.init();
     defer fuse.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
-    try fuse.recv1();
+    while (true) {
+        try fuse.recv1();
+    }
 
     // var clip = try Clipboard.init(alloc);
     // defer clip.deinit();
