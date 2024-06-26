@@ -22,13 +22,11 @@ const WRITER_OPTS = buffered_writer.BufferedWriterOptions{
 };
 
 fh: std.fs.File,
-_reader: std.io.BufferedReader(READ_BUF_SIZE, std.fs.File.Reader),
 _writer: buffered_writer.BufferedWriter(std.fs.File.Writer, WRITER_OPTS),
+/// For receiving messages from the kernel. This must be done carefully, as the kernel expects to have a large enough buffer to write in that it never needs to send partial messages.
+reader: std.fs.File.Reader,
 version: struct { major: u32, minor: u32 },
 
-pub inline fn reader(dev: *Dev) @TypeOf(dev._reader).Reader {
-    return dev._reader.reader();
-}
 pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
     return dev._writer.writer();
 }
@@ -92,16 +90,13 @@ pub fn init() !Dev {
     }
     errdefer unmount() catch @panic("failed to unmount");
 
-    const reader_unbuffered = fh.reader();
-    const _reader = std.io.bufferedReaderSize(READ_BUF_SIZE, reader_unbuffered);
-
     const writer_unbuffered = fh.writer();
     const _writer = buffered_writer.bufferedWriterOpts(writer_unbuffered, WRITER_OPTS);
 
     var dev = Dev{
         .fh = fh,
-        ._reader = _reader,
         ._writer = _writer,
+        .reader = fh.reader(),
         // Initial version. This will get modified when we exchange Init structs with the kernel
         .version = .{
             .major = kernel.VERSION,
@@ -109,105 +104,105 @@ pub fn init() !Dev {
         },
     };
 
-    // init exchange
+    dev.recv1(InitExchange) catch |err| switch (err) {
+        error.Unimplemented => {
+            log.err("kernel sent us another opcode before initializing.", .{});
+            return error.NonCompliantKernel;
+        },
+        else => return err,
+    };
 
-    var in_header = try dev.reader().readStruct(kernel.InHeader);
-    std.debug.assert(in_header.opcode == .init);
-
-    const extraneous = in_header.len - (@sizeOf(kernel.InHeader) + @sizeOf(kernel.InitIn));
-    if (extraneous < 0) {
-        log.err("Kernel's init message is to small by {} bytes. There is no known reason for this to happen, and we don't know how to proceed.", .{-extraneous});
-        return error.InitTooSmall;
-    } else if (extraneous > 0) {
-        log.warn("Kernel's init message is too big by {} bytes. This may be a newer version of the kernel. Will attempt to plow ahead and treat the first bytes as the InitIn we understand and then ignore subsequent bytes.", .{extraneous});
-    }
-
-    var init_in = try dev.reader().readStruct(kernel.InitIn);
-    log.debug("received init from kernel: {}", .{std.json.fmt(init_in, .{ .whitespace = .indent_2 })});
-
-    if (extraneous > 0) {
-        _ = try dev.reader().skipBytes(extraneous, .{});
-        log.warn("skipped {} bytes from kernel (InitIn struct was too big)", .{extraneous});
-    }
-
-    if (init_in.major < 7) {
-        // libfuse doesn't support it, so at least to begin with i'll follow suit
-        log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
-        return error.UnsupportedVersion;
-    }
-
-    // man fuse.4 (section FUSE_INIT)
-    // If the major version supported by the kernel is larger than that
-    // supported by the daemon, the reply shall consist of only uint32_t major
-    // (following the usual header), indicating the largest major version
-    // supported by the daemon.  The kernel will then issue a new FUSE_INIT
-    // request conforming to the older version.  In the reverse case, the daemon
-    // should quietly fall back to the kernel's major version.
-    if (init_in.major > dev.version.major) {
-        try dev.writer().writeStruct(kernel.OutHeader{
-            .unique = in_header.unique,
-            .@"error" = .SUCCESS,
-            .len = @sizeOf(kernel.OutHeader) + @sizeOf(u32),
-        });
-        try dev.writer().writeInt(u32, kernel.VERSION, @import("builtin").target.cpu.arch.endian());
-        try dev.flush_writer();
-
-        in_header = try dev.reader().readStruct(kernel.InHeader);
-        std.debug.assert(in_header.opcode == .init);
-        // at this point the kernel shouldn't send us incompatible structs
-        std.debug.assert(in_header.len == @sizeOf(kernel.InHeader) + @sizeOf(kernel.InitIn));
-        init_in = try dev.reader().readStruct(kernel.InitIn);
-        // TODO: will this ever be <=?
-        std.debug.assert(init_in.major == dev.version.major);
-    }
-
-    // the kernel is on an old version, we'll cede to it.
-    if (init_in.major < dev.version.major) {
-        dev.version = .{
-            .major = init_in.major,
-            .minor = init_in.minor,
-        };
-    } else if (init_in.minor < dev.version.minor) {
-        dev.version.minor = init_in.minor;
-    }
-
-    try dev.sendOut(in_header.unique, kernel.InitOut{
-        .major = dev.version.major,
-        .minor = dev.version.minor,
-        .max_readahead = init_in.max_readahead,
-
-        // TODO: presumably we should only set the flags we actually want to support
-        .flags = init_in.flags,
-        .flags2 = init_in.flags2,
-
-        // not sure what these are
-        // values taken from https://github.com/richiejp/m/blob/main/src/fuse.zig#L360-L365
-        .max_background = 0,
-        .congestion_threshold = 0,
-        .max_write = 4096,
-        .time_gran = 0,
-        .max_pages = 1,
-        .map_alignment = 1,
-    });
     return dev;
 }
 
+    pub const init = @"1".init;
+    pub const @"1" = struct {
+        pub fn init(dev: *Dev, header: *const kernel.InHeader, init_in: *const kernel.InitIn) !void {
+            if (init_in.major < 7) {
+                // libfuse doesn't support it, so at least to begin with i'll follow suit
+                log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
+                return error.UnsupportedVersion;
+            }
+
+            // man fuse.4 (section FUSE_INIT)
+            // If the major version supported by the kernel is larger than that
+            // supported by the daemon, the reply shall consist of only uint32_t major
+            // (following the usual header), indicating the largest major version
+            // supported by the daemon.
+            if (init_in.major > dev.version.major) {
+                try dev.writer().writeStruct(kernel.OutHeader{
+                    .unique = header.unique,
+                    .@"error" = .SUCCESS,
+                    .len = @sizeOf(kernel.OutHeader) + @sizeOf(u32),
+                });
+                try dev.writer().writeInt(u32, kernel.VERSION, @import("builtin").target.cpu.arch.endian());
+                try dev.flush_writer();
+
+                return dev.recv1(InitExchange.@"2");
+            }
+            return initKnownValid(dev, header, init_in);
+        }
+    };
+    pub const @"2" = struct {
+        // The kernel will then issue a new FUSE_INIT request conforming to the
+        // older version.
+        pub fn init(dev: *Dev, header: *const kernel.InHeader, init_in: *const kernel.InitIn) !void {
+            if (init_in.major != dev.version.major) {
+                log.err("kernel refusing to conform to major version {}. Sending {} instead.", .{ dev.version.major, init_in.major });
+                return error.NonCompliantKernel;
+            }
+            return initKnownValid(dev, header, init_in);
+        }
+    };
+    pub fn initKnownValid(dev: *Dev, header: *const kernel.InHeader, init_in: *const kernel.InitIn) !void {
+        // the kernel is on an old version, we'll cede to it.
+        if (init_in.major < dev.version.major) {
+            dev.version = .{
+                .major = init_in.major,
+                .minor = init_in.minor,
+            };
+        } else if (init_in.minor < dev.version.minor) {
+            dev.version.minor = init_in.minor;
+        }
+
+        try dev.sendOut(header.unique, kernel.InitOut{
+            .major = dev.version.major,
+            .minor = dev.version.minor,
+            .max_readahead = init_in.max_readahead,
+
+            // TODO: presumably we should only set the flags we actually want to support
+            .flags = init_in.flags,
+            .flags2 = init_in.flags2,
+
+            // not sure what these are
+            // values taken from https://github.com/richiejp/m/blob/main/src/fuse.zig#L360-L365
+            .max_background = 0,
+            .congestion_threshold = 0,
+            .max_write = 4096,
+            .time_gran = 0,
+            .max_pages = 1,
+            .map_alignment = 1,
+        });
+    }
+};
+
 // TODO: I don't like that this has to exist. this is replicating the logic in recv1, but pared down. I don't like that it could get out of sync.
 // TODO: if we can't do away with it, it's still ugly. clean it up.
+// an arraylist would be ideal, but that appears impossible at comptime
 pub fn CallbackArgsT(opcode: kernel.OpCode) type {
     const MAX_ARGS = 8;
     comptime var n_args = 0;
     comptime var arg_types: [MAX_ARGS]type = undefined;
     arg_types[n_args] = *Dev;
     n_args += 1;
-    arg_types[n_args] = kernel.InHeader;
+    arg_types[n_args] = *const kernel.InHeader;
     n_args += 1;
     if (opcode.InStruct()) |InStruct| {
-        arg_types[n_args] = InStruct;
+        arg_types[n_args] = *const InStruct;
         n_args += 1;
     }
     for (0..opcode.nFiles()) |_| {
-        arg_types[n_args] = [:0]u8;
+        arg_types[n_args] = [:0]const u8;
         n_args += 1;
     }
     return std.meta.Tuple(arg_types[0..n_args]);
@@ -230,6 +225,13 @@ inline fn setArg(args: anytype, comptime n: *comptime_int, value: anytype) void 
     n.* += 1;
 }
 
+test "setArg" {
+    var args: std.meta.Tuple(&.{ u32, []const u8 }) = undefined;
+    comptime var arg_n = 0;
+    setArg(&args, &arg_n, 0);
+    setArg(&args, &arg_n, "hello");
+    std.testing.expectEqual(args, .{ 0, "hello" });
+}
 // TODO: if i just make a 64-bit aligned buffer, I can just cast pointers to different parts of it...
 // I'm already doing this with the BufferedReader, it's just not aligned so we have to memcpy the bytes out
 // TODO: i can make a recv1Alloc version too that allocates a buffer rather than putting them on the stack
@@ -238,11 +240,22 @@ inline fn setArg(args: anytype, comptime n: *comptime_int, value: anytype) void 
 // QUESTION: are we guaranteed the kernel will never send us more than one message at the same time?
 // QUESTION: what if the kernel sends us messages in two writes, but we just read after both have been sent?
 // I'm thinking about this as a FIFO, but it's not. our read request gets sent directly to the kernel, so probably we only get one message at a time
+// TODO: we could define the types needed in CallbackArgsT(), and then here just loop over that and do the obvious thing for each one
 /// @Callbacks has a function for each opcode. see low_level.DevCallbacks for an example and to see what types are expected
-pub fn recv1(dev: *Dev) !void {
-    const header = try dev.reader().readStruct(kernel.InHeader);
+pub fn recv1(dev: *Dev, Callbacks: type) !void {
+    // everything in fuse is aligned on 64-bit boundaries
+    var message_buf: [READ_BUF_SIZE]u8 align(@alignOf(u64)) = undefined;
+    log.info("waiting for kernel message...", .{});
+    const message_len = try dev.reader.readAtLeast(&message_buf, @sizeOf(kernel.InHeader));
+    log.info("got it!", .{});
+    const message: []align(@alignOf(u64)) u8 = message_buf[0..message_len];
+
+    var pos: usize = 0;
+    const header: *const kernel.InHeader = @alignCast(@ptrCast(&message[pos]));
+    pos += @sizeOf(kernel.InHeader);
+    std.debug.assert(header.len == message.len);
     log.info("received: {}", .{header});
-    var rest = header.len - @sizeOf(kernel.InHeader);
+
     switch (header.opcode) {
         inline else => |opcode| {
             if (!@hasDecl(Callbacks, @tagName(opcode))) {
@@ -258,14 +271,11 @@ pub fn recv1(dev: *Dev) !void {
             const MaybeInStruct = opcode.InStruct();
             if (MaybeInStruct) |InStruct| {
                 const size = dev.inSize(InStruct);
-                std.debug.assert(rest >= size);
-                std.debug.assert(size >= @sizeOf(InStruct));
-                var in_struct: InStruct = std.mem.zeroes(InStruct);
-                try dev.reader().readNoEof(std.mem.asBytes(&in_struct)[0..size]);
-                rest -= @intCast(size);
+                std.debug.assert(pos + size <= message.len);
+                const in_struct: *const InStruct = @alignCast(@ptrCast(&message[pos]));
+                pos += size;
                 log.info("received: {}", .{in_struct});
                 setArg(&args, &arg_n, in_struct);
-                arg_n += 1;
             } else {
                 log.info("no body expected", .{});
             }
@@ -276,18 +286,12 @@ pub fn recv1(dev: *Dev) !void {
                 // TODO: setxattr works differently
                 // TODO: do i have to deal with offset parameters?
                 if (count == 1) {
-                    // XXX: shhhhhh this is a terrible hack to get things working
-                    // i'm more and more thinking the right way to do this is to
-                    // allocate a top-level buffer for the whole kernel message
-                    // and then pass around pointers to parts of it. I want
-                    // to test things out before making that big change but I
-                    // don't want to bother doing allocations right for those .5
-                    // seconds of testing
-                    const alloc = std.heap.page_allocator;
-                    const buf = try alloc.alloc(u8, rest);
-                    try dev.reader().readNoEof(buf);
-                    log.info("received filename: \"{}\"", .{buf});
-                    setArg(&args, &arg_n, buf[0 .. buf.len - 1 :0]);
+                    const filename = std.mem.span(message[pos .. message.len - 1 :0]);
+                    log.info("received filename: \"{}\"", .{filename});
+                    setArg(&args, &arg_n, filename);
+                    pos += filename.len + 1;
+                    log.info("skipping {} extra bytes", .{message.len - pos});
+                    pos = message.len;
                 } else {
                     // TODO: the go code seems to split on 0-bytes, which makes sense except
                     // 1. how does it deal with alignment
@@ -297,15 +301,15 @@ pub fn recv1(dev: *Dev) !void {
                 }
             }
 
-            std.debug.assert(rest == 0);
+            std.debug.assert(pos == message.len);
 
             try @call(.auto, @field(Callbacks, @tagName(opcode)), args);
         },
     }
 }
 
-const Callbacks = struct {
-    pub fn getattr(dev: *Dev, header: kernel.InHeader, getattr_in: kernel.GetattrIn) !void {
+pub const StandardCallbacks = struct {
+    pub fn getattr(dev: *Dev, header: *const kernel.InHeader, getattr_in: *const kernel.GetattrIn) !void {
         std.debug.assert(getattr_in.getattr_flags.fh == false);
 
         switch (header.nodeid) {
@@ -344,7 +348,7 @@ const Callbacks = struct {
             },
         }
     }
-    pub fn opendir(dev: *Dev, header: kernel.InHeader, _: kernel.OpenIn) !void {
+    pub fn opendir(dev: *Dev, header: *const kernel.InHeader, _: *const kernel.OpenIn) !void {
         switch (header.nodeid) {
             kernel.ROOT_ID => {
                 try dev.sendOut(header.unique, kernel.OpenOut{
@@ -357,7 +361,7 @@ const Callbacks = struct {
             },
         }
     }
-    pub fn readdirplus(dev: *Dev, header: kernel.InHeader, readdirplus_in: kernel.ReadIn) !void {
+    pub fn readdirplus(dev: *Dev, header: *const kernel.InHeader, readdirplus_in: *const kernel.ReadIn) !void {
         const Static = struct {
             var done: bool = false;
         };
@@ -428,7 +432,7 @@ const Callbacks = struct {
         try dev.flush_writer();
         Static.done = true;
     }
-    pub fn releasedir(dev: *Dev, header: kernel.InHeader, _: kernel.ReleaseIn) !void {
+    pub fn releasedir(dev: *Dev, header: *const kernel.InHeader, _: *const kernel.ReleaseIn) !void {
         try dev.sendOut(header.unique, void);
     }
 };
@@ -467,7 +471,7 @@ pub fn outSize(dev: *const Dev, comptime Data: type) usize {
         kernel.LseekOut,
         => @compileError("TODO: check what the compat sizes are for " ++ @typeName(Data)),
 
-        else => @compileError("Unsupported send operation on type " ++ @typeName(Data)),
+        else => @compileError(@typeName(Data) ++ " is not a fuse output struct"),
     }
 }
 
@@ -478,12 +482,12 @@ pub fn inSize(dev: *const Dev, comptime Data: type) usize {
         kernel.OpenIn,
         kernel.ReleaseIn,
         kernel.ReadIn,
+        kernel.InitIn,
         => @sizeOf(Data),
 
         kernel.FlushIn,
         kernel.GetxattrIn,
         kernel.SetattrIn,
-        kernel.InitIn,
         kernel.IoctlIn,
         kernel.MknodIn,
         kernel.CreateIn,
@@ -516,7 +520,7 @@ pub fn inSize(dev: *const Dev, comptime Data: type) usize {
     };
 }
 
-pub fn outBytes(dev: *const Dev, data_ptr: anytype) ![]const u8 {
+pub fn outBytes(dev: *const Dev, data_ptr: anytype) []const u8 {
     const Data = @typeInfo(@TypeOf(data_ptr)).Pointer.child;
     // special case for sendOut(void);
     if (Data == type)
@@ -543,7 +547,7 @@ pub fn sendOut(dev: *Dev, unique: u64, data: anytype) !void {
     // Two things make the size unpredictable:
     // 1. compatibilty with older protocol versions means we might have to truncate it
     // 2. flexible array members are not of compile-time known size
-    const out_bytes = try dev.outBytes(&data);
+    const out_bytes = dev.outBytes(&data);
 
     const header = kernel.OutHeader{
         .@"error" = .SUCCESS,
