@@ -227,7 +227,7 @@ pub const OpCode = enum(c_uint) {
             .setattr => SetattrIn,
             .init => InitIn,
             .ioctl => IoctlIn,
-            .open => OpenIn,
+            .open, .opendir => OpenIn,
             .mknod => MknodIn,
             .create => CreateIn,
             .read, .readdir, .readdirplus => ReadIn,
@@ -257,7 +257,7 @@ pub const OpCode = enum(c_uint) {
             .cuse_init_bswap_reserved => Cuse.InitIn,
             .init_bswap_reserved => InitIn,
             .notify_reply => NotifyRetrieveIn,
-            .removexattr, .destroy, .statfs, .opendir, .tmpfile, .readlink, .lookup, .unlink, .rmdir, .symlink => null,
+            .removexattr, .destroy, .statfs, .tmpfile, .readlink, .lookup, .unlink, .rmdir, .symlink => null,
         };
     }
 
@@ -805,6 +805,7 @@ pub const FallocateIn = extern struct {
 pub const InHeader = extern struct {
     len: u32,
     opcode: OpCode,
+    // TODO: make this an enum { _ } type (but figure out which `unique`s need to be of that type)
     unique: u64,
     nodeid: u64,
     uid: std.os.linux.uid_t,
