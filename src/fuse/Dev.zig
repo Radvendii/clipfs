@@ -23,7 +23,6 @@ const WRITER_OPTS = buffered_writer.BufferedWriterOptions{
 
 fh: std.fs.File,
 _reader: std.io.BufferedReader(READ_BUF_SIZE, std.fs.File.Reader),
-// TODO: we do not want auto-flushing. it should return an error if we hit the end of the buffer.
 _writer: buffered_writer.BufferedWriter(std.fs.File.Writer, WRITER_OPTS),
 version: struct { major: u32, minor: u32 },
 
