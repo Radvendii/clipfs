@@ -3,16 +3,17 @@ const std = @import("std");
 // const FuseOps = @import("FuseOps.zig");
 // const Clipboard = @import("Clipboard.zig");
 const Dev = @import("fuse/Dev.zig");
+const low_level = @import("fuse/low_level.zig");
 
 pub fn main() !void {
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // defer std.debug.assert(gpa.deinit() == .ok);
     // const alloc = gpa.allocator();
 
-    var fuse = try Dev.init();
-    defer fuse.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
+    var dev = try Dev.init();
+    defer dev.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
     while (true) {
-        try fuse.recv1(Dev.StandardCallbacks);
+        try low_level.recv1(&dev, void);
     }
 
     // var clip = try Clipboard.init(alloc);
