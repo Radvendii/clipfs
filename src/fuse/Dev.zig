@@ -119,7 +119,7 @@ const InitExchange = struct {
     // start at stage 1
     pub usingnamespace @"1";
     pub const @"1" = struct {
-        pub fn init(dev: *Dev, header: *const kernel.InHeader, init_in: *const kernel.InitIn) !void {
+        pub fn init(dev: *Dev, header: kernel.InHeader, init_in: kernel.InitIn) !void {
             if (init_in.major < 7) {
                 // libfuse doesn't support it, so at least to begin with i'll follow suit
                 log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
@@ -149,7 +149,7 @@ const InitExchange = struct {
     pub const @"2" = struct {
         // The kernel will then issue a new FUSE_INIT request conforming to the
         // older version.
-        pub fn init(dev: *Dev, header: *const kernel.InHeader, init_in: *const kernel.InitIn) !void {
+        pub fn init(dev: *Dev, header: kernel.InHeader, init_in: kernel.InitIn) !void {
             if (init_in.major != dev.version.major) {
                 log.err("kernel refusing to conform to major version {}. Sending {} instead.", .{ dev.version.major, init_in.major });
                 return error.NonCompliantKernel;
@@ -157,7 +157,7 @@ const InitExchange = struct {
             return initKnownValid(dev, header, init_in);
         }
     };
-    pub fn initKnownValid(dev: *Dev, header: *const kernel.InHeader, init_in: *const kernel.InitIn) !void {
+    pub fn initKnownValid(dev: *Dev, header: kernel.InHeader, init_in: kernel.InitIn) !void {
         // the kernel is on an old version, we'll cede to it.
         if (init_in.major < dev.version.major) {
             dev.version = .{
@@ -190,7 +190,6 @@ const InitExchange = struct {
 };
 
 // TODO: I don't like that this has to exist. this is replicating the logic in recv1, but pared down. I don't like that it could get out of sync.
-// TODO: is it right to use *const T, or T? We know that what we're going to have is *const T pointing into the buffer, but maybe the compiler knows that it's faster to pass by value and copy that segment of memory
 // an arraylist would be ideal, but that appears impossible at comptime
 inline fn setArgType(arg_types: *[]type, next: type) void {
     arg_types.*.len += 1;
@@ -201,9 +200,9 @@ pub fn CallbackArgsT(opcode: kernel.OpCode) type {
     var arg_types_buf = [1]type{undefined} ** MAX_ARGS;
     var arg_types: []type = arg_types_buf[0..0];
     setArgType(&arg_types, *Dev);
-    setArgType(&arg_types, *const kernel.InHeader);
+    setArgType(&arg_types, kernel.InHeader);
     if (opcode.InStruct()) |InStruct|
-        setArgType(&arg_types, *const InStruct);
+        setArgType(&arg_types, InStruct);
     for (0..opcode.nFiles()) |_|
         setArgType(&arg_types, [:0]const u8);
 
@@ -266,7 +265,7 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
             comptime var arg_n = 0;
             setArg(&args, &arg_n, dev);
             // TODO: don't pass the whole header, just the `unique` and what each op actually needs
-            setArg(&args, &arg_n, header);
+            setArg(&args, &arg_n, header.*);
 
             const MaybeInStruct = opcode.InStruct();
             if (MaybeInStruct) |InStruct| {
@@ -275,7 +274,7 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
                 const in_struct: *const InStruct = @alignCast(@ptrCast(&message[pos]));
                 pos += size;
                 log.info("received: {}", .{in_struct});
-                setArg(&args, &arg_n, in_struct);
+                setArg(&args, &arg_n, in_struct.*);
             } else {
                 log.info("no body expected", .{});
             }
@@ -393,10 +392,6 @@ pub fn inSize(dev: *const Dev, comptime Data: type) usize {
 
 pub fn outBytes(dev: *const Dev, data_ptr: anytype) []const u8 {
     const Data = @typeInfo(@TypeOf(data_ptr)).Pointer.child;
-    // special case for sendOut(void);
-    if (Data == type)
-        if (data_ptr.* == void)
-            return &[0]u8{};
     const size = dev.outSize(Data);
     if (size == @sizeOf(Data)) {
         return std.mem.asBytes(data_ptr);

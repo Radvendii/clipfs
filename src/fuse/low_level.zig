@@ -4,7 +4,7 @@ const kernel = @import("kernel.zig");
 const log = std.log.scoped(.@"fuse-low-level");
 
 pub const Callbacks = struct {
-    pub fn getattr(dev: *Dev, header: *const kernel.InHeader, getattr_in: *const kernel.GetattrIn) !void {
+    pub fn getattr(dev: *Dev, header: kernel.InHeader, getattr_in: kernel.GetattrIn) !void {
         std.debug.assert(getattr_in.getattr_flags.fh == false);
 
         switch (header.nodeid) {
@@ -43,7 +43,7 @@ pub const Callbacks = struct {
             },
         }
     }
-    pub fn opendir(dev: *Dev, header: *const kernel.InHeader, _: *const kernel.OpenIn) !void {
+    pub fn opendir(dev: *Dev, header: kernel.InHeader, _: kernel.OpenIn) !void {
         switch (header.nodeid) {
             kernel.ROOT_ID => {
                 try dev.sendOut(header.unique, kernel.OpenOut{
@@ -56,7 +56,7 @@ pub const Callbacks = struct {
             },
         }
     }
-    pub fn readdirplus(dev: *Dev, header: *const kernel.InHeader, readdirplus_in: *const kernel.ReadIn) !void {
+    pub fn readdirplus(dev: *Dev, header: kernel.InHeader, readdirplus_in: kernel.ReadIn) !void {
         const Static = struct {
             var done: bool = false;
         };
@@ -127,7 +127,7 @@ pub const Callbacks = struct {
         try dev.flush_writer();
         Static.done = true;
     }
-    pub fn releasedir(dev: *Dev, header: *const kernel.InHeader, _: *const kernel.ReleaseIn) !void {
+    pub fn releasedir(dev: *Dev, header: kernel.InHeader, _: kernel.ReleaseIn) !void {
         try dev.sendOut(header.unique, {});
     }
 };
