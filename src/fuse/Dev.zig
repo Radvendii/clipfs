@@ -187,25 +187,24 @@ pub fn init() !Dev {
 };
 
 // TODO: I don't like that this has to exist. this is replicating the logic in recv1, but pared down. I don't like that it could get out of sync.
-// TODO: if we can't do away with it, it's still ugly. clean it up.
+// TODO: is it right to use *const T, or T? We know that what we're going to have is *const T pointing into the buffer, but maybe the compiler knows that it's faster to pass by value and copy that segment of memory
 // an arraylist would be ideal, but that appears impossible at comptime
+inline fn setArgType(arg_types: *[]type, next: type) void {
+    arg_types.*.len += 1;
+    arg_types.*[arg_types.len - 1] = next;
+}
 pub fn CallbackArgsT(opcode: kernel.OpCode) type {
-    const MAX_ARGS = 8;
-    comptime var n_args = 0;
-    comptime var arg_types: [MAX_ARGS]type = undefined;
-    arg_types[n_args] = *Dev;
-    n_args += 1;
-    arg_types[n_args] = *const kernel.InHeader;
-    n_args += 1;
-    if (opcode.InStruct()) |InStruct| {
-        arg_types[n_args] = *const InStruct;
-        n_args += 1;
-    }
-    for (0..opcode.nFiles()) |_| {
-        arg_types[n_args] = [:0]const u8;
-        n_args += 1;
-    }
-    return std.meta.Tuple(arg_types[0..n_args]);
+    const MAX_ARGS = 10;
+    var arg_types_buf = [1]type{undefined} ** MAX_ARGS;
+    var arg_types: []type = arg_types_buf[0..0];
+    setArgType(&arg_types, *Dev);
+    setArgType(&arg_types, *const kernel.InHeader);
+    if (opcode.InStruct()) |InStruct|
+        setArgType(&arg_types, *const InStruct);
+    for (0..opcode.nFiles()) |_|
+        setArgType(&arg_types, [:0]const u8);
+
+    return std.meta.Tuple(arg_types);
 }
 
 /// equivalent to
@@ -243,12 +242,12 @@ test "setArg" {
 // TODO: we could define the types needed in CallbackArgsT(), and then here just loop over that and do the obvious thing for each one
 /// @Callbacks has a function for each opcode. see low_level.DevCallbacks for an example and to see what types are expected
 pub fn recv1(dev: *Dev, Callbacks: type) !void {
-    // everything in fuse is aligned on 64-bit boundaries
-    var message_buf: [READ_BUF_SIZE]u8 align(@alignOf(u64)) = undefined;
+    // everything in fuse is 8-byte-aligned
+    var message_buf: [READ_BUF_SIZE]u8 align(8) = undefined;
     log.info("waiting for kernel message...", .{});
     const message_len = try dev.reader.readAtLeast(&message_buf, @sizeOf(kernel.InHeader));
     log.info("got it!", .{});
-    const message: []align(@alignOf(u64)) u8 = message_buf[0..message_len];
+    const message: []align(8) const u8 = message_buf[0..message_len];
 
     var pos: usize = 0;
     const header: *const kernel.InHeader = @alignCast(@ptrCast(&message[pos]));
