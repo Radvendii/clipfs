@@ -22,6 +22,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // how long the trace is for @compileError()s
+    b.reference_trace = 256;
+
     // exe.linkSystemLibrary("x11");
     // exe.linkSystemLibrary("magic");
     // exe.linkSystemLibrary("fuse3");
