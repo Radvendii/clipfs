@@ -215,11 +215,11 @@ pub fn CallbackArgsT(opcode: kernel.OpCode) type {
 inline fn setArg(args: anytype, comptime n: *comptime_int, value: anytype) void {
     const n_str = comptime std.fmt.comptimePrint("{d}", .{n.*});
     if (@TypeOf(@field(args, n_str)) != @TypeOf(value)) {
-        @compileError(std.fmt.comptimePrint("Failed to set argument {} of tuple {}. Expected type {} got {}", .{
+        @compileError(std.fmt.comptimePrint("Failed to set argument {} of tuple {s}. Expected type {s} got {s}", .{
             n.*,
-            @TypeOf(args),
-            @TypeOf(@field(args, n_str)),
-            @TypeOf(value),
+            @typeName(@TypeOf(args)),
+            @typeName(@TypeOf(@field(args, n_str))),
+            @typeName(@TypeOf(value)),
         }));
     }
     @field(args, n_str) = value;
@@ -258,7 +258,7 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
     switch (header.opcode) {
         inline else => |opcode| {
             if (!@hasDecl(Callbacks, @tagName(opcode))) {
-                log.err("Callback not provided for {}", .{opcode});
+                log.err("Callback not provided for {s}", .{@tagName(opcode)});
                 return error.Unimplemented;
             }
             var args: CallbackArgsT(opcode) = undefined;
@@ -285,8 +285,8 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
                 // TODO: setxattr works differently
                 // TODO: do i have to deal with offset parameters?
                 if (count == 1) {
-                    const filename = std.mem.span(message[pos .. message.len - 1 :0]);
-                    log.info("received filename: \"{}\"", .{filename});
+                    const filename = std.mem.span(@as([*:0]const u8, message[pos .. message.len - 1 :0]));
+                    log.info("received filename: \"{s}\"", .{filename});
                     setArg(&args, &arg_n, filename);
                     pos += filename.len + 1;
                     log.info("skipping {} extra bytes", .{message.len - pos});
