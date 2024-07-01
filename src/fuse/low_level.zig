@@ -37,6 +37,36 @@ pub const Callbacks = struct {
                     },
                 });
             },
+            // clipboard
+            2 => {
+                try dev.sendOut(header.unique, kernel.AttrOut{
+                    // can i send an "invalidate" signal to the kernel?
+                    .attr_valid = 0,
+                    .attr_valid_nsec = 0,
+                    .attr = .{
+                        // no relation to nodeid. so what is it?
+                        .ino = 2,
+                        .size = "<the clipboard contents>".len,
+                        .blocks = 0,
+                        .atime = 0,
+                        .atimensec = 0,
+                        .mtime = 0,
+                        .mtimensec = 0,
+                        .ctime = 0,
+                        .ctimensec = 0,
+                        .mode = std.posix.S.IFREG | 0o0755,
+                        .nlink = 1,
+                        .uid = 0,
+                        .gid = 0,
+                        .rdev = 0,
+                        .blksize = 0,
+                        .flags = .{
+                            .submount = false,
+                            .dax = false,
+                        },
+                    },
+                });
+            },
             else => {
                 log.warn("received GetattrIn for non-existent nodeid {}", .{header.nodeid});
                 try dev.sendErr(header.unique, .NOENT);
@@ -62,7 +92,7 @@ pub const Callbacks = struct {
         };
         if (readdirplus_in.offset != 0) std.debug.panic("TODO: implement dealing with non-zero offset in readdirplus", .{});
         if (header.nodeid != kernel.ROOT_ID) std.debug.panic("readdirplus not implemented for any nodeid besides ROOT_ID", .{});
-        const name = "hello";
+        const name = "clipboard";
         // TODO: for more than one entry, we will need to implement sendOut for []EntryOut
         // FAM means we probably need to just send a []u8 here
 
@@ -78,7 +108,7 @@ pub const Callbacks = struct {
         }
         try dev.writer().writeStruct(kernel.DirentPlus{
             .entryOut = .{
-                .nodeid = 0,
+                .nodeid = 2,
                 .generation = 0,
                 .entry_valid = 0,
                 .entry_valid_nsec = 0,
@@ -86,7 +116,8 @@ pub const Callbacks = struct {
                 .attr_valid_nsec = 0,
                 .attr = .{
                     .ino = 1,
-                    .size = "hello".len,
+                    // XXX: this needs to be the actual clipboard contents
+                    .size = "<the clipboard contents>".len,
                     .blocks = 0,
                     .atime = 0,
                     .atimensec = 0,
@@ -129,6 +160,49 @@ pub const Callbacks = struct {
     }
     pub fn releasedir(dev: *Dev, header: kernel.InHeader, _: kernel.ReleaseIn) !void {
         try dev.sendOut(header.unique, {});
+    }
+
+    pub fn lookup(dev: *Dev, header: kernel.InHeader, filename: [:0]const u8) !void {
+        // TODO: in theory the nodeid check can be done before the filename is
+        // parsed, which would save a few cycles. in most cases it's probably
+        // not worth it but i don't want to prevent optimizations. maybe a
+        // `lookup_preparse()` callback could be optionally defined that only
+        // takes in the nodeid
+        if (header.nodeid != kernel.ROOT_ID or !std.mem.eql(u8, filename, "clipboard"))
+            try dev.sendErr(header.unique, .NOENT);
+        try dev.sendOut(
+            header.unique,
+            kernel.EntryOut{
+                .nodeid = 2,
+                .generation = 0,
+                .entry_valid = 0,
+                .entry_valid_nsec = 0,
+                .attr_valid = 0,
+                .attr_valid_nsec = 0,
+                .attr = .{
+                    .ino = 1,
+                    // XXX: this needs to be the actual clipboard contents
+                    .size = "<the clipboard contents>".len,
+                    .blocks = 0,
+                    .atime = 0,
+                    .atimensec = 0,
+                    .mtime = 0,
+                    .mtimensec = 0,
+                    .ctime = 0,
+                    .ctimensec = 0,
+                    .mode = std.posix.S.IFREG | 0o0755,
+                    .nlink = 1,
+                    .uid = 0,
+                    .gid = 0,
+                    .rdev = 0,
+                    .blksize = 0,
+                    .flags = .{
+                        .submount = false,
+                        .dax = false,
+                    },
+                },
+            },
+        );
     }
 };
 

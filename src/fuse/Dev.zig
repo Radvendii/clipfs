@@ -320,11 +320,14 @@ pub fn outSize(dev: *const Dev, comptime Data: type) usize {
             0...8 => kernel.AttrOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
+        kernel.EntryOut => return switch (dev.version.minor) {
+            0...8 => kernel.EntryOut.COMPAT_SIZE,
+            else => @sizeOf(Data),
+        },
         kernel.OpenOut, void => return @sizeOf(Data),
 
         kernel.Dirent, kernel.DirentPlus => @compileError(@typeName(Data) ++ " output size must be handled manually"),
 
-        kernel.EntryOut,
         kernel.StatxOut,
         kernel.WriteOut,
         kernel.StatfsOut,
