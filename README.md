@@ -76,9 +76,13 @@
 - https://github.com/hanwen/go-fuse/blob/master/fuse/opcode.go
 - http://ptspts.blogspot.com/2009/11/fuse-protocol-tutorial-for-linux-26.html
 - https://stackoverflow.com/questions/11071996/what-are-inode-generation-numbers
+- https://github.com/richiejp/m/tree/main
 - Read the kernel source code.
 
+### interrupts
 
+- https://www.oreilly.com/library/view/linux-device-drivers/0596000081/ch09s05.html
+- https://www.openmymind.net/Writing-a-Task-Scheduler-in-Zig/
 
 
 - everything can be driven by either paste or filesystem requests
