@@ -8,6 +8,11 @@ pub const MINOR_VERSION = 39;
 // the nodeid of the root filesystem
 pub const ROOT_ID = 1;
 
+/// the read buffer is required to be at least 8k, but may be much larger
+///
+/// you need a buffer at least this big to read from /dev/fuse.
+pub const MIN_READ_BUFFER = 8192;
+
 /// errno values are technically defined to be positive. However, as return
 /// values their negations are typically used. This convention is followed
 /// in the OutHeader struct. To provide a convenient, legible enum interface
@@ -515,10 +520,6 @@ pub const ReadFlags = packed struct(u32) {
     _padding: std.meta.Int(.unsigned, 32 - 1) = 0,
 };
 
-/// the read buffer is required to be at least 8k, but may be much larger
-// TODO: what does this represent? Does it make sense to move it into ReadIn struct?
-pub const MIN_READ_BUFFER = 8192;
-
 pub const ReadIn = extern struct {
     fh: u64,
     offset: u64,
@@ -817,8 +818,6 @@ pub const InHeader = extern struct {
 };
 pub const OutHeader = extern struct {
     len: u32,
-    // TODO: does this have a more defined error type? totally unclear from the docs
-    // TODO: look in the kernel
     @"error": @"-E",
     unique: u64,
 };
@@ -891,6 +890,8 @@ pub const Dirent = extern struct {
     //     @memcpy(self.name(), new_name);
     // }
 };
+// Q: EntryOut has a compat size. how does that affect the size and layout of DirentPlus??
+// A: no, because readdirplus didn't exist at that point
 pub const DirentPlus = extern struct {
     entryOut: EntryOut = zeroes(EntryOut),
     dirent: Dirent = zeroes(Dirent),
