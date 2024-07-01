@@ -1,17 +1,19 @@
+/// takes care of opening, mounting, reading and writing to /dev/fuse. provides a slightly more convenient interface.
+/// THREAD_SAFETY: a single Dev should **not** be shared between threads. in the future, there will be an interface for duplicating a Dev to be used in another thread, but this is not yet implemented.
 const Dev = @This();
 
 const std = @import("std");
 const log = std.log.scoped(.@"/dev/fuse");
 
-pub const kernel = @import("kernel.zig");
+pub const k = @import("kernel.zig");
 pub const buffered_writer = @import("buffered_writer.zig");
 
 /// Must be > MIN_READ_BUFFER. The kernel wants to read/write in discrete units
 /// of an entire message (header + body). Otherwise it will return EINVAL.
-pub const READ_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
+pub const READ_BUF_SIZE = 2 * k.MIN_READ_BUFFER;
 /// Must be > MIN_READ_BUFFER. The kernel wants to read/write in discrete units
 /// of an entire message (header + body). Otherwise it will return EINVAL.
-pub const WRITE_BUF_SIZE = 2 * kernel.MIN_READ_BUFFER;
+pub const WRITE_BUF_SIZE = 2 * k.MIN_READ_BUFFER;
 
 const WRITER_OPTS = buffered_writer.BufferedWriterOptions{
     .buffer_size = WRITE_BUF_SIZE,
@@ -33,13 +35,13 @@ pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
 
 pub const Align64 = struct {
     /// round up to the nearest 60-bit aligned value
-    pub const next = kernel.align64;
+    pub const next = k.align64;
     /// how many bits need to be added to reach the nearest 64-bit aligned number
     pub fn fill(x: anytype) @TypeOf(x) {
         const lower_bits: @TypeOf(x) = @alignOf(u64) - 1;
         return (~x +% 1) & lower_bits;
     }
-    /// is this value laready 64-bit aligned
+    /// is this value already 64-bit aligned
     pub fn aligned(x: anytype) bool {
         const lower_bits: @TypeOf(x) = @alignOf(u64) - 1;
         return (x & lower_bits) == 0;
@@ -99,8 +101,8 @@ pub fn init() !Dev {
         .reader = fh.reader(),
         // Initial version. This will get modified when we exchange Init structs with the kernel
         .version = .{
-            .major = kernel.VERSION,
-            .minor = kernel.MINOR_VERSION,
+            .major = k.VERSION,
+            .minor = k.MINOR_VERSION,
         },
     };
 
@@ -119,7 +121,7 @@ const InitExchange = struct {
     // start at stage 1
     pub usingnamespace @"1";
     pub const @"1" = struct {
-        pub fn init(dev: *Dev, header: kernel.InHeader, init_in: kernel.InitIn) !void {
+        pub fn init(dev: *Dev, header: k.InHeader, init_in: k.InitIn) !void {
             if (init_in.major < 7) {
                 // libfuse doesn't support it, so at least to begin with i'll follow suit
                 log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
@@ -132,12 +134,12 @@ const InitExchange = struct {
             // (following the usual header), indicating the largest major version
             // supported by the daemon.
             if (init_in.major > dev.version.major) {
-                try dev.writer().writeStruct(kernel.OutHeader{
+                try dev.writer().writeStruct(k.OutHeader{
                     .unique = header.unique,
                     .@"error" = .SUCCESS,
-                    .len = @sizeOf(kernel.OutHeader) + @sizeOf(u32),
+                    .len = @sizeOf(k.OutHeader) + @sizeOf(u32),
                 });
-                try dev.writer().writeInt(u32, kernel.VERSION, @import("builtin").target.cpu.arch.endian());
+                try dev.writer().writeInt(u32, k.VERSION, @import("builtin").target.cpu.arch.endian());
                 try dev.flush_writer();
 
                 return dev.recv1(InitExchange.@"2");
@@ -149,7 +151,7 @@ const InitExchange = struct {
     pub const @"2" = struct {
         // The kernel will then issue a new FUSE_INIT request conforming to the
         // older version.
-        pub fn init(dev: *Dev, header: kernel.InHeader, init_in: kernel.InitIn) !void {
+        pub fn init(dev: *Dev, header: k.InHeader, init_in: k.InitIn) !void {
             if (init_in.major != dev.version.major) {
                 log.err("kernel refusing to conform to major version {}. Sending {} instead.", .{ dev.version.major, init_in.major });
                 return error.NonCompliantKernel;
@@ -157,7 +159,7 @@ const InitExchange = struct {
             return initKnownValid(dev, header, init_in);
         }
     };
-    pub fn initKnownValid(dev: *Dev, header: kernel.InHeader, init_in: kernel.InitIn) !void {
+    pub fn initKnownValid(dev: *Dev, header: k.InHeader, init_in: k.InitIn) !void {
         // the kernel is on an old version, we'll cede to it.
         if (init_in.major < dev.version.major) {
             dev.version = .{
@@ -168,7 +170,7 @@ const InitExchange = struct {
             dev.version.minor = init_in.minor;
         }
 
-        try dev.sendOut(header.unique, kernel.InitOut{
+        try dev.sendOut(header.unique, k.InitOut{
             .major = dev.version.major,
             .minor = dev.version.minor,
             .max_readahead = init_in.max_readahead,
@@ -195,12 +197,12 @@ inline fn setArgType(arg_types: *[]type, next: type) void {
     arg_types.*.len += 1;
     arg_types.*[arg_types.len - 1] = next;
 }
-pub fn CallbackArgsT(opcode: kernel.OpCode) type {
+pub fn CallbackArgsT(opcode: k.OpCode) type {
     const MAX_ARGS = 10;
     var arg_types_buf = [1]type{undefined} ** MAX_ARGS;
     var arg_types: []type = arg_types_buf[0..0];
     setArgType(&arg_types, *Dev);
-    setArgType(&arg_types, kernel.InHeader);
+    setArgType(&arg_types, k.InHeader);
     if (opcode.InStruct()) |InStruct|
         setArgType(&arg_types, InStruct);
     for (0..opcode.nFiles()) |_|
@@ -245,13 +247,13 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
     // everything in fuse is 8-byte-aligned
     var message_buf: [READ_BUF_SIZE]u8 align(8) = undefined;
     log.info("waiting for kernel message...", .{});
-    const message_len = try dev.reader.readAtLeast(&message_buf, @sizeOf(kernel.InHeader));
+    const message_len = try dev.reader.readAtLeast(&message_buf, @sizeOf(k.InHeader));
     log.info("got it!", .{});
     const message: []align(8) const u8 = message_buf[0..message_len];
 
     var pos: usize = 0;
-    const header: *const kernel.InHeader = @alignCast(@ptrCast(&message[pos]));
-    pos += @sizeOf(kernel.InHeader);
+    const header: *const k.InHeader = @alignCast(@ptrCast(&message[pos]));
+    pos += @sizeOf(k.InHeader);
     std.debug.assert(header.len == message.len);
     log.info("received: {}", .{header});
 
@@ -311,37 +313,37 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
 // TODO: we could allow for sending ints here. i'm a little wary of that because it's such an unusual thing to do that i don't want to bog down the "normal" function with it or give the impression it's a normal thing
 pub fn outSize(dev: *const Dev, comptime Data: type) usize {
     switch (Data) {
-        kernel.InitOut => return switch (dev.version.minor) {
-            0...4 => kernel.InitOut.COMPAT_SIZE,
-            5...22 => kernel.InitOut.COMPAT_22_SIZE,
+        k.InitOut => return switch (dev.version.minor) {
+            0...4 => k.InitOut.COMPAT_SIZE,
+            5...22 => k.InitOut.COMPAT_22_SIZE,
             else => @sizeOf(Data),
         },
-        kernel.AttrOut => return switch (dev.version.minor) {
-            0...8 => kernel.AttrOut.COMPAT_SIZE,
+        k.AttrOut => return switch (dev.version.minor) {
+            0...8 => k.AttrOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
-        kernel.EntryOut => return switch (dev.version.minor) {
-            0...8 => kernel.EntryOut.COMPAT_SIZE,
+        k.EntryOut => return switch (dev.version.minor) {
+            0...8 => k.EntryOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
-        kernel.OpenOut, void => return @sizeOf(Data),
+        k.OpenOut, void => return @sizeOf(Data),
 
-        kernel.Dirent, kernel.DirentPlus => @compileError(@typeName(Data) ++ " output size must be handled manually"),
+        k.Dirent, k.DirentPlus => @compileError(@typeName(Data) ++ " output size must be handled manually"),
 
-        kernel.StatxOut,
-        kernel.WriteOut,
-        kernel.StatfsOut,
-        kernel.GetxattrOut,
-        kernel.LkOut,
-        kernel.BmapOut,
-        kernel.IoctlOut,
-        kernel.PollOut,
-        kernel.NotifyPollWakeupOut,
-        kernel.NotifyInvalInodeOut,
-        kernel.NotifyInvalEntryOut,
-        kernel.NotifyDeleteOut,
-        kernel.NotifyRetrieveOut,
-        kernel.LseekOut,
+        k.StatxOut,
+        k.WriteOut,
+        k.StatfsOut,
+        k.GetxattrOut,
+        k.LkOut,
+        k.BmapOut,
+        k.IoctlOut,
+        k.PollOut,
+        k.NotifyPollWakeupOut,
+        k.NotifyInvalInodeOut,
+        k.NotifyInvalEntryOut,
+        k.NotifyDeleteOut,
+        k.NotifyRetrieveOut,
+        k.LseekOut,
         => @compileError("TODO: check what the compat sizes are for " ++ @typeName(Data)),
 
         else => @compileError(@typeName(Data) ++ " is not a fuse output struct"),
@@ -351,42 +353,42 @@ pub fn outSize(dev: *const Dev, comptime Data: type) usize {
 pub fn inSize(dev: *const Dev, comptime Data: type) usize {
     _ = dev;
     return switch (Data) {
-        kernel.GetattrIn,
-        kernel.OpenIn,
-        kernel.ReleaseIn,
-        kernel.ReadIn,
-        kernel.InitIn,
+        k.GetattrIn,
+        k.OpenIn,
+        k.ReleaseIn,
+        k.ReadIn,
+        k.InitIn,
         => @sizeOf(Data),
 
-        kernel.FlushIn,
-        kernel.GetxattrIn,
-        kernel.SetattrIn,
-        kernel.IoctlIn,
-        kernel.MknodIn,
-        kernel.CreateIn,
-        kernel.AccessIn,
-        kernel.ForgetIn,
-        kernel.BatchForgetIn,
-        kernel.LinkIn,
-        kernel.MkdirIn,
-        kernel.FallocateIn,
-        kernel.RenameIn,
-        kernel.Rename2In,
-        kernel.WriteIn,
-        kernel.FsyncIn,
-        kernel.SetxattrIn,
-        kernel.LkIn,
-        kernel.InterruptIn,
-        kernel.BmapIn,
-        kernel.PollIn,
-        kernel.LseekIn,
-        kernel.CopyFileRangeIn,
-        kernel.SetupmappingIn,
-        kernel.RemovemappingIn,
-        kernel.SyncfsIn,
-        kernel.StatxIn,
-        kernel.Cuse.InitIn,
-        kernel.NotifyRetrieveIn,
+        k.FlushIn,
+        k.GetxattrIn,
+        k.SetattrIn,
+        k.IoctlIn,
+        k.MknodIn,
+        k.CreateIn,
+        k.AccessIn,
+        k.ForgetIn,
+        k.BatchForgetIn,
+        k.LinkIn,
+        k.MkdirIn,
+        k.FallocateIn,
+        k.RenameIn,
+        k.Rename2In,
+        k.WriteIn,
+        k.FsyncIn,
+        k.SetxattrIn,
+        k.LkIn,
+        k.InterruptIn,
+        k.BmapIn,
+        k.PollIn,
+        k.LseekIn,
+        k.CopyFileRangeIn,
+        k.SetupmappingIn,
+        k.RemovemappingIn,
+        k.SyncfsIn,
+        k.StatxIn,
+        k.Cuse.InitIn,
+        k.NotifyRetrieveIn,
         => @compileError("TODO: check what the compat sizes are for " ++ @typeName(Data)),
 
         else => @compileError(@typeName(Data) ++ " is not a fuse input struct"),
@@ -418,22 +420,22 @@ pub fn sendOut(dev: *Dev, unique: u64, data: anytype) !void {
     // 2. flexible array members are not of compile-time known size
     const out_bytes = dev.outBytes(&data);
 
-    const header = kernel.OutHeader{
+    const header = k.OutHeader{
         .@"error" = .SUCCESS,
         .unique = unique,
-        .len = @intCast(@sizeOf(kernel.OutHeader) + out_bytes.len),
+        .len = @intCast(@sizeOf(k.OutHeader) + out_bytes.len),
     };
     try dev.writer().writeStruct(header);
     try dev.writer().writeAll(out_bytes);
     try dev.flush_writer();
 }
 
-pub fn sendErr(dev: *Dev, unique: u64, err: kernel.@"-E") !void {
+pub fn sendErr(dev: *Dev, unique: u64, err: k.@"-E") !void {
     log.info("Sending error to kernel: E{s}", .{@tagName(err)});
-    try dev.writer().writeStruct(kernel.OutHeader{
+    try dev.writer().writeStruct(k.OutHeader{
         .unique = unique,
         .@"error" = err,
-        .len = @sizeOf(kernel.OutHeader),
+        .len = @sizeOf(k.OutHeader),
     });
     try dev.flush_writer();
 }

@@ -1,15 +1,15 @@
 const std = @import("std");
 const Dev = @import("Dev.zig");
-const kernel = @import("kernel.zig");
+const k = @import("kernel.zig");
 const log = std.log.scoped(.@"fuse-low-level");
 
 pub const Callbacks = struct {
-    pub fn getattr(dev: *Dev, header: kernel.InHeader, getattr_in: kernel.GetattrIn) !void {
+    pub fn getattr(dev: *Dev, header: k.InHeader, getattr_in: k.GetattrIn) !void {
         std.debug.assert(getattr_in.getattr_flags.fh == false);
 
         switch (header.nodeid) {
-            kernel.ROOT_ID => {
-                try dev.sendOut(header.unique, kernel.AttrOut{
+            k.ROOT_ID => {
+                try dev.sendOut(header.unique, k.AttrOut{
                     // can i send an "invalidate" signal to the kernel?
                     .attr_valid = 0,
                     .attr_valid_nsec = 0,
@@ -39,7 +39,7 @@ pub const Callbacks = struct {
             },
             // clipboard
             2 => {
-                try dev.sendOut(header.unique, kernel.AttrOut{
+                try dev.sendOut(header.unique, k.AttrOut{
                     // can i send an "invalidate" signal to the kernel?
                     .attr_valid = 0,
                     .attr_valid_nsec = 0,
@@ -73,10 +73,10 @@ pub const Callbacks = struct {
             },
         }
     }
-    pub fn opendir(dev: *Dev, header: kernel.InHeader, _: kernel.OpenIn) !void {
+    pub fn opendir(dev: *Dev, header: k.InHeader, _: k.OpenIn) !void {
         switch (header.nodeid) {
-            kernel.ROOT_ID => {
-                try dev.sendOut(header.unique, kernel.OpenOut{
+            k.ROOT_ID => {
+                try dev.sendOut(header.unique, k.OpenOut{
                     .fh = 1,
                     .open_flags = .{},
                 });
@@ -87,27 +87,27 @@ pub const Callbacks = struct {
             },
         }
     }
-    pub fn readdirplus(dev: *Dev, header: kernel.InHeader, readdirplus_in: kernel.ReadIn) !void {
+    pub fn readdirplus(dev: *Dev, header: k.InHeader, readdirplus_in: k.ReadIn) !void {
         const Static = struct {
             var done: bool = false;
         };
         if (readdirplus_in.offset != 0) std.debug.panic("TODO: implement dealing with non-zero offset in readdirplus", .{});
-        if (header.nodeid != kernel.ROOT_ID) std.debug.panic("readdirplus not implemented for any nodeid besides ROOT_ID", .{});
+        if (header.nodeid != k.ROOT_ID) std.debug.panic("readdirplus not implemented for any nodeid besides ROOT_ID", .{});
         const name = "clipboard";
         // TODO: for more than one entry, we will need to implement sendOut for []EntryOut
         // FAM means we probably need to just send a []u8 here
 
-        try dev.writer().writeStruct(kernel.OutHeader{
+        try dev.writer().writeStruct(k.OutHeader{
             .@"error" = .SUCCESS,
-            .len = @sizeOf(kernel.OutHeader),
+            .len = @sizeOf(k.OutHeader),
             .unique = header.unique,
         });
-        var out_header: *kernel.OutHeader = @ptrCast(&dev._writer.buf);
+        var out_header: *k.OutHeader = @ptrCast(&dev._writer.buf);
         if (Static.done) {
             try dev.flush_writer();
             return;
         }
-        try dev.writer().writeStruct(kernel.DirentPlus{
+        try dev.writer().writeStruct(k.DirentPlus{
             .entryOut = .{
                 .nodeid = 2,
                 .generation = 0,
@@ -145,8 +145,8 @@ pub const Callbacks = struct {
                 .namelen = name.len,
             },
         });
-        const dirent_plus: *kernel.DirentPlus = @alignCast(@ptrCast(&dev._writer.buf[out_header.len]));
-        out_header.len += @sizeOf(kernel.DirentPlus);
+        const dirent_plus: *k.DirentPlus = @alignCast(@ptrCast(&dev._writer.buf[out_header.len]));
+        out_header.len += @sizeOf(k.DirentPlus);
 
         // TODO: writeAllSentinel() would be nice
         // or maybe fn std.mem.withSentinel([:0]const T) []const T
@@ -159,21 +159,21 @@ pub const Callbacks = struct {
         try dev.flush_writer();
         Static.done = true;
     }
-    pub fn releasedir(dev: *Dev, header: kernel.InHeader, _: kernel.ReleaseIn) !void {
+    pub fn releasedir(dev: *Dev, header: k.InHeader, _: k.ReleaseIn) !void {
         try dev.sendOut(header.unique, {});
     }
 
-    pub fn lookup(dev: *Dev, header: kernel.InHeader, filename: [:0]const u8) !void {
+    pub fn lookup(dev: *Dev, header: k.InHeader, filename: [:0]const u8) !void {
         // TODO: in theory the nodeid check can be done before the filename is
         // parsed, which would save a few cycles. in most cases it's probably
         // not worth it but i don't want to prevent optimizations. maybe a
         // `lookup_preparse()` callback could be optionally defined that only
         // takes in the nodeid
-        if (header.nodeid != kernel.ROOT_ID or !std.mem.eql(u8, filename, "clipboard"))
+        if (header.nodeid != k.ROOT_ID or !std.mem.eql(u8, filename, "clipboard"))
             try dev.sendErr(header.unique, .NOENT);
         try dev.sendOut(
             header.unique,
-            kernel.EntryOut{
+            k.EntryOut{
                 .nodeid = 2,
                 .generation = 0,
                 .entry_valid = 0,
@@ -205,10 +205,10 @@ pub const Callbacks = struct {
             },
         );
     }
-    pub fn open(dev: *Dev, header: kernel.InHeader, _: kernel.OpenIn) !void {
+    pub fn open(dev: *Dev, header: k.InHeader, _: k.OpenIn) !void {
         switch (header.nodeid) {
             2 => {
-                try dev.sendOut(header.unique, kernel.OpenOut{
+                try dev.sendOut(header.unique, k.OpenOut{
                     .fh = 1,
                     .open_flags = .{},
                 });
