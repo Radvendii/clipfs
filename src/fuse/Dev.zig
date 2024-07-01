@@ -412,7 +412,7 @@ pub fn outBytes(dev: *const Dev, data_ptr: anytype) []const u8 {
     unreachable;
 }
 
-pub fn sendOut(dev: *Dev, unique: u64, data: anytype) !void {
+pub fn sendOut(dev: *Dev, unique: k.Unique, data: anytype) !void {
     log.info("Sending to kernel: {}", .{data});
     // Normally, we just send the struct.
     // Two things make the size unpredictable:
@@ -430,7 +430,7 @@ pub fn sendOut(dev: *Dev, unique: u64, data: anytype) !void {
     try dev.flush_writer();
 }
 
-pub fn sendErr(dev: *Dev, unique: u64, err: k.@"-E") !void {
+pub fn sendErr(dev: *Dev, unique: k.Unique, err: k.@"-E") !void {
     log.info("Sending error to kernel: E{s}", .{@tagName(err)});
     try dev.writer().writeStruct(k.OutHeader{
         .unique = unique,

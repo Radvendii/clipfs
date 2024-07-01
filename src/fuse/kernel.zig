@@ -727,7 +727,7 @@ pub const InitOut = extern struct {
     pub const COMPAT_22_SIZE = 24;
 };
 pub const InterruptIn = extern struct {
-    unique: u64,
+    unique: Unique,
 };
 pub const BmapIn = extern struct {
     block: u64,
@@ -803,11 +803,12 @@ pub const FallocateIn = extern struct {
     mode: u32,
     padding: u32 = zeroes(u32),
 };
+pub const Unique = enum(u64) { _ };
 pub const InHeader = extern struct {
     len: u32,
     opcode: OpCode,
     // TODO: make this an enum { _ } type (but figure out which `unique`s need to be of that type)
-    unique: u64,
+    unique: Unique,
     nodeid: u64,
     uid: std.os.linux.uid_t,
     gid: std.os.linux.gid_t,
@@ -819,7 +820,7 @@ pub const InHeader = extern struct {
 pub const OutHeader = extern struct {
     len: u32,
     @"error": @"-E",
-    unique: u64,
+    unique: Unique,
 };
 
 /// align up (ceil) to the nearest 64 bits
