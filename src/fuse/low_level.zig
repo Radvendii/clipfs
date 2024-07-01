@@ -83,6 +83,7 @@ pub const Callbacks = struct {
             },
             else => {
                 log.warn("received OpenIn for non-existent nodeid {}", .{header.nodeid});
+                try dev.sendErr(header.unique, .NOENT);
             },
         }
     }
@@ -203,6 +204,20 @@ pub const Callbacks = struct {
                 },
             },
         );
+    }
+    pub fn open(dev: *Dev, header: kernel.InHeader, _: kernel.OpenIn) !void {
+        switch (header.nodeid) {
+            2 => {
+                try dev.sendOut(header.unique, kernel.OpenOut{
+                    .fh = 1,
+                    .open_flags = .{},
+                });
+            },
+            else => {
+                log.warn("received OpenIn for non-existent nodeid {}", .{header.nodeid});
+                try dev.sendErr(header.unique, .NOENT);
+            },
+        }
     }
 };
 
