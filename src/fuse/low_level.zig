@@ -3,9 +3,12 @@ const Dev = @import("Dev.zig");
 const k = @import("kernel.zig");
 const log = std.log.scoped(.@"fuse-low-level");
 
+// TODO: integrate with clipboard code
+const CLIPBOARD = "<the clipboard contents>";
 pub const Callbacks = struct {
     pub fn getattr(dev: *Dev, header: k.InHeader, getattr_in: k.GetattrIn) !void {
-        std.debug.assert(getattr_in.getattr_flags.fh == false);
+        _ = getattr_in; // autofix
+        // std.debug.assert(getattr_in.getattr_flags.fh == false);
 
         switch (header.nodeid) {
             k.ROOT_ID => {
@@ -46,7 +49,7 @@ pub const Callbacks = struct {
                     .attr = .{
                         // no relation to nodeid. so what is it?
                         .ino = 2,
-                        .size = "<the clipboard contents>".len,
+                        .size = CLIPBOARD.len,
                         .blocks = 0,
                         .atime = 0,
                         .atimensec = 0,
@@ -118,7 +121,7 @@ pub const Callbacks = struct {
                 .attr = .{
                     .ino = 1,
                     // XXX: this needs to be the actual clipboard contents
-                    .size = "<the clipboard contents>".len,
+                    .size = CLIPBOARD.len,
                     .blocks = 0,
                     .atime = 0,
                     .atimensec = 0,
@@ -162,6 +165,9 @@ pub const Callbacks = struct {
     pub fn releasedir(dev: *Dev, header: k.InHeader, _: k.ReleaseIn) !void {
         try dev.sendOut(header.unique, {});
     }
+    pub fn release(dev: *Dev, header: k.InHeader, _: k.ReleaseIn) !void {
+        try dev.sendOut(header.unique, {});
+    }
 
     pub fn lookup(dev: *Dev, header: k.InHeader, filename: [:0]const u8) !void {
         // TODO: in theory the nodeid check can be done before the filename is
@@ -183,7 +189,7 @@ pub const Callbacks = struct {
                 .attr = .{
                     .ino = 1,
                     // XXX: this needs to be the actual clipboard contents
-                    .size = "<the clipboard contents>".len,
+                    .size = CLIPBOARD.len,
                     .blocks = 0,
                     .atime = 0,
                     .atimensec = 0,
@@ -218,6 +224,27 @@ pub const Callbacks = struct {
                 try dev.sendErr(header.unique, .NOENT);
             },
         }
+    }
+    pub fn read(dev: *Dev, header: k.InHeader, read_in: k.ReadIn) !void {
+        _ = read_in; // autofix
+        switch (header.nodeid) {
+            2 => {
+                // can't send literal bytes yet
+                // try dev.sendOut(header.unique, CLIPBOARD),
+                try dev.writer().writeStruct(k.OutHeader{
+                    .@"error" = .SUCCESS,
+                    .unique = header.unique,
+                    .len = Dev.Align64.next(@as(u32, @intCast(@sizeOf(k.OutHeader) + CLIPBOARD.len + 1))),
+                });
+                try dev.writer().writeAll(CLIPBOARD[0 .. CLIPBOARD.len + 1]);
+                _ = try dev.padWrite();
+                try dev.flush_writer();
+            },
+            else => try dev.sendErr(header.unique, .NOENT),
+        }
+    }
+    pub fn flush(dev: *Dev, header: k.InHeader, _: k.FlushIn) !void {
+        try dev.sendOut(header.unique, {});
     }
 };
 

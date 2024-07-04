@@ -360,9 +360,9 @@ pub fn inSize(dev: *const Dev, comptime Data: type) usize {
         k.ReleaseIn,
         k.ReadIn,
         k.InitIn,
+        k.FlushIn,
         => @sizeOf(Data),
 
-        k.FlushIn,
         k.GetxattrIn,
         k.SetattrIn,
         k.IoctlIn,
