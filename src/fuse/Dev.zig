@@ -28,6 +28,7 @@ _writer: buffered_writer.BufferedWriter(std.fs.File.Writer, WRITER_OPTS),
 /// For receiving messages from the kernel. This must be done carefully, as the kernel expects to have a large enough buffer to write in that it never needs to send partial messages.
 reader: std.fs.File.Reader,
 version: struct { major: u32, minor: u32 },
+mnt: [:0]const u8,
 
 pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
     return dev._writer.writer();
@@ -63,7 +64,7 @@ pub inline fn flush_writer(dev: *Dev) !void {
     };
 }
 
-pub fn init() !Dev {
+pub fn init(mnt: [:0]const u8) !Dev {
     const fh = try std.fs.openFileAbsolute("/dev/fuse", .{ .mode = .read_write });
     errdefer fh.close();
 
@@ -79,7 +80,7 @@ pub fn init() !Dev {
     // TODO: mount was returning the error code -22, but when we're using libc, errno() expects -1 and errno set
     switch (std.posix.errno(std.os.linux.mount(
         "fuse",
-        "/mnt",
+        mnt,
         "fuse.clipfs",
         std.os.linux.MS.NODEV | std.os.linux.MS.NOSUID,
         @intFromPtr(mount_args.ptr),
@@ -90,12 +91,13 @@ pub fn init() !Dev {
             return error.Mount;
         },
     }
-    errdefer unmount() catch @panic("failed to unmount");
+    errdefer unmount(mnt) catch @panic("failed to unmount");
 
     const writer_unbuffered = fh.writer();
     const _writer = buffered_writer.bufferedWriterOpts(writer_unbuffered, WRITER_OPTS);
 
     var dev = Dev{
+        .mnt = mnt,
         .fh = fh,
         ._writer = _writer,
         .reader = fh.reader(),
@@ -440,17 +442,19 @@ pub fn sendErr(dev: *Dev, unique: k.Unique, err: k.@"-E") !void {
     try dev.flush_writer();
 }
 
-pub fn unmount() !void {
-    switch (std.posix.errno(std.os.linux.umount("/mnt"))) {
-        .SUCCESS => {},
-        else => |err| {
-            log.err("unmounting: {}", .{err});
-            return error.Unmount;
-        },
+pub fn unmount(mnt: [:0]const u8) !void {
+    if (false) {
+        switch (std.posix.errno(std.os.linux.umount(mnt))) {
+            .SUCCESS => {},
+            else => |err| {
+                log.err("unmounting: {}", .{err});
+                return error.Unmount;
+            },
+        }
     }
 }
 
 pub fn deinit(dev: Dev) !void {
-    try unmount();
+    try unmount(dev.mnt);
     dev.fh.close();
 }

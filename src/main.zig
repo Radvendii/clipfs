@@ -5,12 +5,16 @@ const std = @import("std");
 const Dev = @import("fuse/Dev.zig");
 const low_level = @import("fuse/low_level.zig");
 
+// TODO: obviously shouldn't be hard-coded
+// needs to be root-owned for now
+const MNT = "/home/qolen/personal/clipfs/mnt";
+
 pub fn main() !void {
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // defer std.debug.assert(gpa.deinit() == .ok);
     // const alloc = gpa.allocator();
 
-    var dev = try Dev.init();
+    var dev = try Dev.init(MNT);
     defer dev.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
     while (true) {
         try low_level.recv1(&dev, void);
