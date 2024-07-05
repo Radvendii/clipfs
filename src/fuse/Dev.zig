@@ -62,41 +62,83 @@ pub const OutBuffer = struct {
         return @constCast(&this).header().len;
     }
 
+    pub inline fn isEmpty(this: OutBuffer) bool {
+        return this.len() == @sizeOf(k.OutHeader);
+    }
+
+    pub fn isErr(this: OutBuffer) bool {
+        return @constCast(&this).header().@"error" != .SUCCESS;
+    }
+
     pub fn message(this: OutBuffer) []align(8) const u8 {
         return this.buf[0..this.len()];
     }
 
+    pub fn reset(this: *OutBuffer) void {
+        this.header().* = .{
+            .@"error" = .SUCCESS,
+            .unique = this.unique,
+            .len = @sizeOf(k.OutHeader),
+        };
+    }
+
     pub fn setErr(this: *OutBuffer, err: k.@"-E") void {
+        std.debug.assert(this.isEmpty());
         this.header().@"error" = err;
         this.pos().* = @sizeOf(k.OutHeader);
     }
 
-    pub fn isErr(this: OutBuffer) bool {
-        return this.header().@"error" != .SUCCESS;
+    pub fn setOutStruct(this: *OutBuffer, data: anytype) void {
+        std.debug.assert(this.isEmpty());
+        this.appendOutStruct(data) catch unreachable;
+    }
+
+    pub fn setInt(this: *OutBuffer, int: anytype) void {
+        std.debug.assert(this.isEmpty());
+        this.appendInt(int) catch unreachable;
+    }
+
+    pub fn appendDirentAndString(this: *OutBuffer, dirent: anytype, str: [:0]const u8) error{OutOfMemory}!void {
+        const Dirent = @TypeOf(dirent);
+        std.debug.assert(Dirent == k.Dirent or Dirent == k.DirentPlus);
+        // TODO: a re-implementation would be more efficient
+        const saved_pos = this.len();
+        errdefer this.pos().* = saved_pos;
+        try this.appendOutStruct(dirent);
+        try this.appendString(str);
+    }
+
+    pub fn appendDirentWithString(this: *OutBuffer, dirent: anytype) error{OutOfMemory}!void {
+        const Dirent = @TypeOf(dirent).Pointer.child;
+        std.debug.assert(Dirent == k.Dirent or Dirent == k.DirentPlus);
+        std.debug.assert(this.len() % @alignOf(Dirent) == 0);
+        const new_pos = this.len() + dirent.size();
+        if (new_pos > this.buf.len)
+            return error.OutOfMemory;
+        const bytes: [*]u8 = @ptrCast(dirent);
+        @memcpy(this.buf[this.len()..][0..dirent.size()], bytes[0..dirent.size()]);
+        this.pos().* = new_pos;
     }
 
     pub fn appendOutStruct(this: *OutBuffer, data: anytype) error{OutOfMemory}!void {
         const Data = @TypeOf(data);
-        std.debug.assert(this.pos().* % @alignOf(Data) == 0);
-        const new_pos = this.pos().* + @sizeOf(Data);
-        if (new_pos > this.buf.len)
+        std.debug.assert(this.len() % @alignOf(Data) == 0);
+        if (this.len() + @sizeOf(Data) > this.buf.len)
             return error.OutOfMemory;
 
-        const ptr: *Data = @alignCast(@ptrCast(&this.buf[this.pos().*]));
+        const ptr: *Data = @alignCast(@ptrCast(&this.buf[this.len()]));
         ptr.* = data;
-        // const out_bytes = outBytes(data, this.minor_version);
-        // @memcpy(this.buf[this.pos().*..][0..out_bytes.len], out_bytes);
-        this.pos().* = new_pos;
+        this.pos().* += @intCast(outStructSize(Data, this.minor_version));
     }
 
     pub fn appendInt(this: *OutBuffer, int: anytype) error{OutOfMemory}!void {
         const Int = @TypeOf(int);
         std.debug.assert(@typeInfo(Int) == .Int);
-        std.debug.assert(this.pos().* & @alignOf(Int) == 0);
-        const new_pos = this.pos().* + @sizeOf(Int);
+        std.debug.assert(this.len() & @alignOf(Int) == 0);
+        const new_pos = this.len() + @sizeOf(Int);
         if (new_pos > this.buf.len)
             return error.OutOfMemory;
-        const ptr: *Int = @alignCast(@ptrCast(&this.buf[this.pos().*]));
+        const ptr: *Int = @alignCast(@ptrCast(&this.buf[this.len()]));
         ptr.* = int;
         this.pos().* = new_pos;
     }
@@ -106,10 +148,10 @@ pub const OutBuffer = struct {
     }
 
     pub fn appendString(this: *OutBuffer, str: [:0]const u8) error{OutOfMemory}!void {
-        const new_pos = Align64.next(this.pos().* + str.len + 1);
+        const new_pos = Align64.next(this.len() + str.len + 1);
         if (new_pos > this.buf.len)
             return error.OutOfMemory;
-        @memcpy(this.buf[this.pos().*..][0 .. str.len + 1], str[0 .. str.len + 1]);
+        @memcpy(this.buf[this.len()..][0 .. str.len + 1], str[0 .. str.len + 1]);
         this.pos().* = @intCast(new_pos);
     }
 };
@@ -419,9 +461,7 @@ pub fn outStructSize(comptime Data: type, minor_version: u32) usize {
             0...8 => k.EntryOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
-        k.OpenOut, void => return @sizeOf(Data),
-
-        k.Dirent, k.DirentPlus => @compileError(@typeName(Data) ++ " output size must be handled manually"),
+        k.OpenOut, k.Dirent, k.DirentPlus, void => return @sizeOf(Data),
 
         k.StatxOut,
         k.WriteOut,

@@ -12,7 +12,7 @@ pub const Callbacks = struct {
 
         switch (in.nodeid) {
             k.ROOT_ID => {
-                out.appendOutStruct(k.AttrOut{
+                out.setOutStruct(k.AttrOut{
                     // can i send an "invalidate" signal to the kernel?
                     .attr_valid = 0,
                     .attr_valid_nsec = 0,
@@ -38,11 +38,11 @@ pub const Callbacks = struct {
                             .dax = false,
                         },
                     },
-                }) catch unreachable;
+                });
             },
             // clipboard
             2 => {
-                out.appendOutStruct(k.AttrOut{
+                out.setOutStruct(k.AttrOut{
                     // can i send an "invalidate" signal to the kernel?
                     .attr_valid = 0,
                     .attr_valid_nsec = 0,
@@ -68,7 +68,7 @@ pub const Callbacks = struct {
                             .dax = false,
                         },
                     },
-                }) catch unreachable;
+                });
             },
             else => {
                 log.warn("received GetattrIn for non-existent nodeid {}", .{in.nodeid});
@@ -80,10 +80,10 @@ pub const Callbacks = struct {
     pub fn opendir(_: *Dev, in: k.InHeader, _: k.OpenIn, out: *Dev.OutBuffer) !void {
         switch (in.nodeid) {
             k.ROOT_ID => {
-                out.appendOutStruct(k.OpenOut{
+                out.setOutStruct(k.OpenOut{
                     .fh = 1,
                     .open_flags = .{},
-                }) catch unreachable;
+                });
             },
             else => {
                 log.warn("received OpenIn for non-existent nodeid {}", .{in.nodeid});
@@ -104,47 +104,47 @@ pub const Callbacks = struct {
         if (Static.done) {
             return;
         }
-        out.appendOutStruct(k.DirentPlus{
-            .entryOut = .{
-                .nodeid = 2,
-                .generation = 0,
-                .entry_valid = 0,
-                .entry_valid_nsec = 0,
-                .attr_valid = 0,
-                .attr_valid_nsec = 0,
-                .attr = .{
-                    .ino = 1,
-                    // XXX: this needs to be the actual clipboard contents
-                    .size = CLIPBOARD.len,
-                    .blocks = 0,
-                    .atime = 0,
-                    .atimensec = 0,
-                    .mtime = 0,
-                    .mtimensec = 0,
-                    .ctime = 0,
-                    .ctimensec = 0,
-                    .mode = std.posix.S.IFREG | 0o0755,
-                    .nlink = 1,
-                    .uid = 0,
-                    .gid = 0,
-                    .rdev = 0,
-                    .blksize = 0,
-                    .flags = .{
-                        .submount = false,
-                        .dax = false,
+        out.appendDirentAndString(
+            k.DirentPlus{
+                .entryOut = .{
+                    .nodeid = 2,
+                    .generation = 0,
+                    .entry_valid = 0,
+                    .entry_valid_nsec = 0,
+                    .attr_valid = 0,
+                    .attr_valid_nsec = 0,
+                    .attr = .{
+                        .ino = 1,
+                        // XXX: this needs to be the actual clipboard contents
+                        .size = CLIPBOARD.len,
+                        .blocks = 0,
+                        .atime = 0,
+                        .atimensec = 0,
+                        .mtime = 0,
+                        .mtimensec = 0,
+                        .ctime = 0,
+                        .ctimensec = 0,
+                        .mode = std.posix.S.IFREG | 0o0755,
+                        .nlink = 1,
+                        .uid = 0,
+                        .gid = 0,
+                        .rdev = 0,
+                        .blksize = 0,
+                        .flags = .{
+                            .submount = false,
+                            .dax = false,
+                        },
                     },
                 },
+                .dirent = .{
+                    .ino = 5,
+                    .off = 0,
+                    .type = .REG,
+                    .namelen = name.len,
+                },
             },
-            .dirent = .{
-                .ino = 5,
-                .off = 0,
-                .type = .REG,
-                .namelen = name.len,
-            },
-        }) catch unreachable;
-        out.appendString(name) catch unreachable;
-        // TODO: we need a function to append both at the same time so we can properly handle errors
-
+            name,
+        ) catch @panic("clipboard file name wayyy too long.");
         Static.done = true;
     }
     pub fn releasedir(_: *Dev, _: k.InHeader, _: k.ReleaseIn, _: *Dev.OutBuffer) !void {
@@ -164,7 +164,7 @@ pub const Callbacks = struct {
             out.setErr(.NOENT);
             return;
         }
-        out.appendOutStruct(k.EntryOut{
+        out.setOutStruct(k.EntryOut{
             .nodeid = 2,
             .generation = 0,
             .entry_valid = 0,
@@ -193,15 +193,15 @@ pub const Callbacks = struct {
                     .dax = false,
                 },
             },
-        }) catch unreachable;
+        });
     }
     pub fn open(_: *Dev, in: k.InHeader, _: k.OpenIn, out: *Dev.OutBuffer) !void {
         switch (in.nodeid) {
             2 => {
-                out.appendOutStruct(k.OpenOut{
+                out.setOutStruct(k.OpenOut{
                     .fh = 1,
                     .open_flags = .{},
-                }) catch unreachable;
+                });
             },
             else => {
                 log.warn("received OpenIn for non-existent nodeid {}", .{in.nodeid});
