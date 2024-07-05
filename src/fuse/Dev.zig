@@ -33,19 +33,118 @@ mnt: [:0]const u8,
 pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
     return dev._writer.writer();
 }
+/// buffer for outgoing messages to the kernel
+pub const OutBuffer = struct {
+    buf: [WRITE_BUF_SIZE]u8 align(8) = undefined,
+    /// we need to know the minor version so we know the expected lengths of output structs
+    minor_version: u32,
+
+    pub fn init(minor_version: u32, unique: k.Unique) OutBuffer {
+        var this = OutBuffer{ .minor_version = minor_version };
+        this.header().* = .{
+            .@"error" = .SUCCESS,
+            .unique = unique,
+            .len = @sizeOf(k.OutHeader),
+        };
+        return this;
+    }
+
+    pub inline fn header(this: *OutBuffer) *k.OutHeader {
+        return @ptrCast(&this.buf);
+    }
+
+    pub inline fn pos(this: *OutBuffer) *u32 {
+        return &this.header().len;
+    }
+
+    pub inline fn len(this: OutBuffer) u32 {
+        return @constCast(&this).header().len;
+    }
+
+    pub fn message(this: OutBuffer) []align(8) const u8 {
+        return this.buf[0..this.len()];
+    }
+
+    pub fn setErr(this: *OutBuffer, err: k.@"-E") void {
+        this.header().@"error" = err;
+        this.pos().* = @sizeOf(k.OutHeader);
+    }
+
+    pub fn isErr(this: OutBuffer) bool {
+        return this.header().@"error" != .SUCCESS;
+    }
+
+    pub fn appendOutStruct(this: *OutBuffer, data: anytype) error{OutOfMemory}!void {
+        const Data = @TypeOf(data);
+        std.debug.assert(this.pos().* % @alignOf(Data) == 0);
+        const new_pos = this.pos().* + @sizeOf(Data);
+        if (new_pos > this.buf.len)
+            return error.OutOfMemory;
+
+        const ptr: *Data = @alignCast(@ptrCast(&this.buf[this.pos().*]));
+        ptr.* = data;
+        // const out_bytes = outBytes(data, this.minor_version);
+        // @memcpy(this.buf[this.pos().*..][0..out_bytes.len], out_bytes);
+        this.pos().* = new_pos;
+    }
+
+    pub fn appendInt(this: *OutBuffer, int: anytype) error{OutOfMemory}!void {
+        const Int = @TypeOf(int);
+        std.debug.assert(@typeInfo(Int) == .Int);
+        std.debug.assert(this.pos().* & @alignOf(Int) == 0);
+        const new_pos = this.pos().* + @sizeOf(Int);
+        if (new_pos > this.buf.len)
+            return error.OutOfMemory;
+        const ptr: *Int = @alignCast(@ptrCast(&this.buf[this.pos().*]));
+        ptr.* = int;
+        this.pos().* = new_pos;
+    }
+
+    pub inline fn align64(this: *OutBuffer) void {
+        Align64.@"align"(this.pos());
+    }
+
+    pub fn appendString(this: *OutBuffer, str: [:0]const u8) error{OutOfMemory}!void {
+        const new_pos = Align64.next(this.pos().* + str.len + 1);
+        if (new_pos > this.buf.len)
+            return error.OutOfMemory;
+        @memcpy(this.buf[this.pos().*..][0 .. str.len + 1], str[0 .. str.len + 1]);
+        this.pos().* = @intCast(new_pos);
+    }
+};
+
+pub fn send(dev: *Dev, out: OutBuffer) !void {
+    try dev.fh.writeAll(out.message());
+}
 
 pub const Align64 = struct {
     /// round up to the nearest 60-bit aligned value
     pub const next = k.align64;
     /// how many bits need to be added to reach the nearest 64-bit aligned number
     pub fn fill(x: anytype) @TypeOf(x) {
-        const lower_bits: @TypeOf(x) = @alignOf(u64) - 1;
+        const Int = @TypeOf(x);
+        std.debug.assert(@typeInfo(Int) == .Int);
+        const lower_bits: Int = @alignOf(u64) - 1;
+
         return (~x +% 1) & lower_bits;
     }
     /// is this value already 64-bit aligned
     pub fn aligned(x: anytype) bool {
-        const lower_bits: @TypeOf(x) = @alignOf(u64) - 1;
+        const Int = @TypeOf(x);
+        std.debug.assert(@typeInfo(Int) == .Int);
+        const lower_bits: Int = @alignOf(u64) - 1;
+
         return (x & lower_bits) == 0;
+    }
+    /// Take a mutable pointer to a
+    pub fn @"align"(ptr: anytype) void {
+        const Int = @TypeOf(ptr).Pointer.child;
+        std.debug.assert(@typeInfo(Int) == .Int);
+        const lower_bits: Int = @alignOf(u64) - 1;
+        const upper_bits: Int = ~lower_bits;
+
+        ptr.* += lower_bits;
+        ptr.* &= upper_bits;
     }
 };
 
@@ -123,7 +222,7 @@ const InitExchange = struct {
     // start at stage 1
     pub usingnamespace @"1";
     pub const @"1" = struct {
-        pub fn init(dev: *Dev, header: k.InHeader, init_in: k.InitIn) !void {
+        pub fn init(dev: *Dev, _: k.InHeader, init_in: k.InitIn, out: *OutBuffer) !void {
             if (init_in.major < 7) {
                 // libfuse doesn't support it, so at least to begin with i'll follow suit
                 log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
@@ -136,32 +235,26 @@ const InitExchange = struct {
             // (following the usual header), indicating the largest major version
             // supported by the daemon.
             if (init_in.major > dev.version.major) {
-                try dev.writer().writeStruct(k.OutHeader{
-                    .unique = header.unique,
-                    .@"error" = .SUCCESS,
-                    .len = @sizeOf(k.OutHeader) + @sizeOf(u32),
-                });
-                try dev.writer().writeInt(u32, k.VERSION, @import("builtin").target.cpu.arch.endian());
-                try dev.flush_writer();
+                try out.appendInt(@as(u32, k.VERSION));
 
                 return dev.recv1(InitExchange.@"2");
             }
 
-            return initKnownValid(dev, header, init_in);
+            try initKnownValid(dev, init_in, out);
         }
     };
     pub const @"2" = struct {
         // The kernel will then issue a new FUSE_INIT request conforming to the
         // older version.
-        pub fn init(dev: *Dev, header: k.InHeader, init_in: k.InitIn) !void {
+        pub fn init(dev: *Dev, _: k.InHeader, init_in: k.InitIn, out: *OutBuffer) !void {
             if (init_in.major != dev.version.major) {
                 log.err("kernel refusing to conform to major version {}. Sending {} instead.", .{ dev.version.major, init_in.major });
                 return error.NonCompliantKernel;
             }
-            return initKnownValid(dev, header, init_in);
+            try initKnownValid(dev, init_in, out);
         }
     };
-    pub fn initKnownValid(dev: *Dev, header: k.InHeader, init_in: k.InitIn) !void {
+    pub fn initKnownValid(dev: *Dev, init_in: k.InitIn, out: *OutBuffer) !void {
         // the kernel is on an old version, we'll cede to it.
         if (init_in.major < dev.version.major) {
             dev.version = .{
@@ -172,7 +265,7 @@ const InitExchange = struct {
             dev.version.minor = init_in.minor;
         }
 
-        try dev.sendOut(header.unique, k.InitOut{
+        try out.appendOutStruct(k.InitOut{
             .major = dev.version.major,
             .minor = dev.version.minor,
             .max_readahead = init_in.max_readahead,
@@ -205,10 +298,14 @@ pub fn CallbackArgsT(opcode: k.OpCode) type {
     var arg_types: []type = arg_types_buf[0..0];
     setArgType(&arg_types, *Dev);
     setArgType(&arg_types, k.InHeader);
+
     if (opcode.InStruct()) |InStruct|
         setArgType(&arg_types, InStruct);
+
     for (0..opcode.nFiles()) |_|
         setArgType(&arg_types, [:0]const u8);
+
+    setArgType(&arg_types, *OutBuffer);
 
     return std.meta.Tuple(arg_types);
 }
@@ -219,11 +316,11 @@ pub fn CallbackArgsT(opcode: k.OpCode) type {
 inline fn setArg(args: anytype, comptime n: *comptime_int, value: anytype) void {
     const n_str = comptime std.fmt.comptimePrint("{d}", .{n.*});
     if (@TypeOf(@field(args, n_str)) != @TypeOf(value)) {
-        @compileError(std.fmt.comptimePrint("Failed to set argument {} of tuple {s}. Expected type {s} got {s}", .{
+        @compileError(std.fmt.comptimePrint("Failed to set argument {} of tuple {}. Expected type {} got {}", .{
             n.*,
-            @typeName(@TypeOf(args)),
-            @typeName(@TypeOf(@field(args, n_str))),
-            @typeName(@TypeOf(value)),
+            @TypeOf(args),
+            @TypeOf(@field(args, n_str)),
+            @TypeOf(value),
         }));
     }
     @field(args, n_str) = value;
@@ -237,6 +334,7 @@ test "setArg" {
     setArg(&args, &arg_n, "hello");
     std.testing.expectEqual(args, .{ 0, "hello" });
 }
+
 // TODO: i can make a recv1Alloc version too that allocates a buffer rather than putting them on the stack
 // this would allow the values to outlive the recv1 call
 // but do we really want that? any particular data you should copy out, you shouldn't be holding onto an API struct
@@ -268,12 +366,11 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
             var args: CallbackArgsT(opcode) = undefined;
             comptime var arg_n = 0;
             setArg(&args, &arg_n, dev);
-            // TODO: don't pass the whole header, just the `unique` and what each op actually needs
             setArg(&args, &arg_n, header.*);
 
             const MaybeInStruct = opcode.InStruct();
             if (MaybeInStruct) |InStruct| {
-                const size = dev.inSize(InStruct);
+                const size = dev.inStructSize(InStruct);
                 std.debug.assert(pos + size <= message.len);
                 const in_struct: *const InStruct = @alignCast(@ptrCast(&message[pos]));
                 pos += size;
@@ -306,25 +403,30 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
 
             std.debug.assert(pos == message.len);
 
+            var out = OutBuffer.init(dev.version.minor, header.unique);
+            setArg(&args, &arg_n, &out);
+
             try @call(.auto, @field(Callbacks, @tagName(opcode)), args);
+
+            try dev.send(out);
         },
     }
 }
 
 // TODO: if we put the version number of the change into the COMPAT_SIZE name, we can comptime automate this whole thing
 // TODO: we could allow for sending ints here. i'm a little wary of that because it's such an unusual thing to do that i don't want to bog down the "normal" function with it or give the impression it's a normal thing
-pub fn outSize(dev: *const Dev, comptime Data: type) usize {
+pub fn outStructSize(comptime Data: type, minor_version: u32) usize {
     switch (Data) {
-        k.InitOut => return switch (dev.version.minor) {
+        k.InitOut => return switch (minor_version) {
             0...4 => k.InitOut.COMPAT_SIZE,
             5...22 => k.InitOut.COMPAT_22_SIZE,
             else => @sizeOf(Data),
         },
-        k.AttrOut => return switch (dev.version.minor) {
+        k.AttrOut => return switch (minor_version) {
             0...8 => k.AttrOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
-        k.EntryOut => return switch (dev.version.minor) {
+        k.EntryOut => return switch (minor_version) {
             0...8 => k.EntryOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
@@ -352,7 +454,7 @@ pub fn outSize(dev: *const Dev, comptime Data: type) usize {
     }
 }
 
-pub fn inSize(dev: *const Dev, comptime Data: type) usize {
+pub fn inStructSize(dev: *const Dev, comptime Data: type) usize {
     _ = dev;
     return switch (Data) {
         k.GetattrIn,
@@ -395,51 +497,6 @@ pub fn inSize(dev: *const Dev, comptime Data: type) usize {
 
         else => @compileError(@typeName(Data) ++ " is not a fuse input struct"),
     };
-}
-
-pub fn outBytes(dev: *const Dev, data_ptr: anytype) []const u8 {
-    const Data = @typeInfo(@TypeOf(data_ptr)).Pointer.child;
-    const size = dev.outSize(Data);
-    if (size == @sizeOf(Data)) {
-        return std.mem.asBytes(data_ptr);
-    }
-    if (size < @sizeOf(Data)) {
-        log.debug("Truncating {s} to {} bytes due to old protocol version {}.{}", .{ @typeName(Data), size, dev.version.major, dev.version.minor });
-        return std.mem.asBytes(data_ptr)[0..size];
-    }
-    if (size > @sizeOf(Data)) {
-        log.debug("Expanding {s} to {} bytes, probably due to FAM", .{ @typeName(Data), size });
-        return @as([*]const u8, @ptrCast(data_ptr))[0..size];
-    }
-    unreachable;
-}
-
-pub fn sendOut(dev: *Dev, unique: k.Unique, data: anytype) !void {
-    log.info("Sending to kernel: {}", .{data});
-    // Normally, we just send the struct.
-    // Two things make the size unpredictable:
-    // 1. compatibilty with older protocol versions means we might have to truncate it
-    // 2. flexible array members are not of compile-time known size
-    const out_bytes = dev.outBytes(&data);
-
-    const header = k.OutHeader{
-        .@"error" = .SUCCESS,
-        .unique = unique,
-        .len = @intCast(@sizeOf(k.OutHeader) + out_bytes.len),
-    };
-    try dev.writer().writeStruct(header);
-    try dev.writer().writeAll(out_bytes);
-    try dev.flush_writer();
-}
-
-pub fn sendErr(dev: *Dev, unique: k.Unique, err: k.@"-E") !void {
-    log.info("Sending error to kernel: E{s}", .{@tagName(err)});
-    try dev.writer().writeStruct(k.OutHeader{
-        .unique = unique,
-        .@"error" = err,
-        .len = @sizeOf(k.OutHeader),
-    });
-    try dev.flush_writer();
 }
 
 pub fn unmount(mnt: [:0]const u8) !void {
