@@ -12,7 +12,7 @@ pub const Callbacks = struct {
 
         switch (in.nodeid) {
             k.ROOT_ID => {
-                try out.appendOutStruct(k.AttrOut{
+                out.appendOutStruct(k.AttrOut{
                     // can i send an "invalidate" signal to the kernel?
                     .attr_valid = 0,
                     .attr_valid_nsec = 0,
@@ -38,11 +38,11 @@ pub const Callbacks = struct {
                             .dax = false,
                         },
                     },
-                });
+                }) catch unreachable;
             },
             // clipboard
             2 => {
-                try out.appendOutStruct(k.AttrOut{
+                out.appendOutStruct(k.AttrOut{
                     // can i send an "invalidate" signal to the kernel?
                     .attr_valid = 0,
                     .attr_valid_nsec = 0,
@@ -68,25 +68,25 @@ pub const Callbacks = struct {
                             .dax = false,
                         },
                     },
-                });
+                }) catch unreachable;
             },
             else => {
                 log.warn("received GetattrIn for non-existent nodeid {}", .{in.nodeid});
-                out.setErr(.NOENT);
+                return error.NOENT;
             },
         }
     }
     pub fn opendir(_: *Dev, in: k.InHeader, _: k.OpenIn, out: *Dev.OutBuffer) !void {
         switch (in.nodeid) {
             k.ROOT_ID => {
-                try out.appendOutStruct(k.OpenOut{
+                out.appendOutStruct(k.OpenOut{
                     .fh = 1,
                     .open_flags = .{},
-                });
+                }) catch unreachable;
             },
             else => {
                 log.warn("received OpenIn for non-existent nodeid {}", .{in.nodeid});
-                out.setErr(.NOENT);
+                return error.NOENT;
             },
         }
     }
@@ -102,7 +102,7 @@ pub const Callbacks = struct {
         if (Static.done) {
             return;
         }
-        try out.appendOutStruct(k.DirentPlus{
+        out.appendOutStruct(k.DirentPlus{
             .entryOut = .{
                 .nodeid = 2,
                 .generation = 0,
@@ -139,8 +139,9 @@ pub const Callbacks = struct {
                 .type = .REG,
                 .namelen = name.len,
             },
-        });
-        try out.appendString(name);
+        }) catch unreachable;
+        out.appendString(name) catch unreachable;
+        // TODO: we need a function to append both at the same time so we can properly handle errors
 
         Static.done = true;
     }
@@ -158,10 +159,9 @@ pub const Callbacks = struct {
         // `lookup_preparse()` callback could be optionally defined that only
         // takes in the nodeid
         if (in.nodeid != k.ROOT_ID or !std.mem.eql(u8, filename, "clipboard")) {
-            out.setErr(.NOENT);
-            return;
+            return error.NOENT;
         }
-        try out.appendOutStruct(k.EntryOut{
+        out.appendOutStruct(k.EntryOut{
             .nodeid = 2,
             .generation = 0,
             .entry_valid = 0,
@@ -190,27 +190,27 @@ pub const Callbacks = struct {
                     .dax = false,
                 },
             },
-        });
+        }) catch unreachable;
     }
     pub fn open(_: *Dev, in: k.InHeader, _: k.OpenIn, out: *Dev.OutBuffer) !void {
         switch (in.nodeid) {
             2 => {
-                try out.appendOutStruct(k.OpenOut{
+                out.appendOutStruct(k.OpenOut{
                     .fh = 1,
                     .open_flags = .{},
-                });
+                }) catch unreachable;
             },
             else => {
                 log.warn("received OpenIn for non-existent nodeid {}", .{in.nodeid});
-                out.setErr(.NOENT);
+                return error.NOENT;
             },
         }
     }
     pub fn read(_: *Dev, in: k.InHeader, read_in: k.ReadIn, out: *Dev.OutBuffer) !void {
         _ = read_in; // autofix
         switch (in.nodeid) {
-            2 => try out.appendString(CLIPBOARD),
-            else => out.setErr(.NOENT),
+            2 => out.appendString(CLIPBOARD) catch @panic("clipboard too long"),
+            else => return error.NOENT,
         }
     }
     pub fn flush(_: *Dev, _: k.InHeader, _: k.FlushIn, _: *Dev.OutBuffer) !void {

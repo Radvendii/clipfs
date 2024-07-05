@@ -33,6 +33,7 @@ mnt: [:0]const u8,
 pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
     return dev._writer.writer();
 }
+
 /// buffer for outgoing messages to the kernel
 pub const OutBuffer = struct {
     buf: [WRITE_BUF_SIZE]u8 align(8) = undefined,
@@ -148,21 +149,6 @@ pub const Align64 = struct {
     }
 };
 
-/// Write out bytes until we're 64bit aligned
-pub inline fn padWrite(dev: *Dev) !usize {
-    const fill = Align64.fill(dev._writer.end);
-    try dev.writer().writeByteNTimes('\x00', fill);
-    return fill;
-}
-pub inline fn flush_writer(dev: *Dev) !void {
-    if (!Align64.aligned(dev._writer.end))
-        return error.UnalignedSend;
-    return dev._writer.flush() catch |err| {
-        log.err("problem writing to kernel: {}", .{err});
-        return err;
-    };
-}
-
 pub fn init(mnt: [:0]const u8) !Dev {
     const fh = try std.fs.openFileAbsolute("/dev/fuse", .{ .mode = .read_write });
     errdefer fh.close();
@@ -235,12 +221,12 @@ const InitExchange = struct {
             // (following the usual header), indicating the largest major version
             // supported by the daemon.
             if (init_in.major > dev.version.major) {
-                try out.appendInt(@as(u32, k.VERSION));
+                out.appendInt(@as(u32, k.VERSION)) catch unreachable;
 
                 return dev.recv1(InitExchange.@"2");
             }
 
-            try initKnownValid(dev, init_in, out);
+            initKnownValid(dev, init_in, out);
         }
     };
     pub const @"2" = struct {
@@ -251,10 +237,10 @@ const InitExchange = struct {
                 log.err("kernel refusing to conform to major version {}. Sending {} instead.", .{ dev.version.major, init_in.major });
                 return error.NonCompliantKernel;
             }
-            try initKnownValid(dev, init_in, out);
+            initKnownValid(dev, init_in, out);
         }
     };
-    pub fn initKnownValid(dev: *Dev, init_in: k.InitIn, out: *OutBuffer) !void {
+    pub fn initKnownValid(dev: *Dev, init_in: k.InitIn, out: *OutBuffer) void {
         // the kernel is on an old version, we'll cede to it.
         if (init_in.major < dev.version.major) {
             dev.version = .{
@@ -265,7 +251,7 @@ const InitExchange = struct {
             dev.version.minor = init_in.minor;
         }
 
-        try out.appendOutStruct(k.InitOut{
+        out.appendOutStruct(k.InitOut{
             .major = dev.version.major,
             .minor = dev.version.minor,
             .max_readahead = init_in.max_readahead,
@@ -282,7 +268,7 @@ const InitExchange = struct {
             .time_gran = 0,
             .max_pages = 1,
             .map_alignment = 1,
-        });
+        }) catch unreachable;
     }
 };
 
@@ -363,6 +349,7 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
                 log.err("Callback not provided for {s}", .{@tagName(opcode)});
                 return error.Unimplemented;
             }
+            const callback = @field(Callbacks, @tagName(opcode));
             var args: CallbackArgsT(opcode) = undefined;
             comptime var arg_n = 0;
             setArg(&args, &arg_n, dev);
@@ -406,7 +393,25 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
             var out = OutBuffer.init(dev.version.minor, header.unique);
             setArg(&args, &arg_n, &out);
 
-            try @call(.auto, @field(Callbacks, @tagName(opcode)), args);
+            @call(.auto, callback, args) catch |err_| {
+                switch (err_) {
+                    inline else => |err| {
+                        const maybeE: ?k.ErrorE = comptime e: {
+                            for (@typeInfo(k.ErrorE).ErrorSet.?) |err_e| {
+                                if (std.mem.eql(u8, err_e.name, @errorName(err)))
+                                    break :e @field(k.ErrorE, @errorName(err));
+                            } else {
+                                break :e null;
+                            }
+                        };
+                        if (maybeE) |e| {
+                            out.setErr(k.errorToE(e));
+                        } else {
+                            return err;
+                        }
+                    },
+                }
+            };
 
             try dev.send(out);
         },
