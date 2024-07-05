@@ -393,25 +393,9 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
             var out = OutBuffer.init(dev.version.minor, header.unique);
             setArg(&args, &arg_n, &out);
 
-            @call(.auto, callback, args) catch |err_| {
-                switch (err_) {
-                    inline else => |err| {
-                        const maybeE: ?k.ErrorE = comptime e: {
-                            for (@typeInfo(k.ErrorE).ErrorSet.?) |err_e| {
-                                if (std.mem.eql(u8, err_e.name, @errorName(err)))
-                                    break :e @field(k.ErrorE, @errorName(err));
-                            } else {
-                                break :e null;
-                            }
-                        };
-                        if (maybeE) |e| {
-                            out.setErr(k.errorToE(e));
-                        } else {
-                            return err;
-                        }
-                    },
-                }
-            };
+            try @call(.auto, callback, args);
+
+            if (out.isErr()) log.warn("responding to kernel with error: {s}", .{@tagName(out.header().@"error")});
 
             try dev.send(out);
         },

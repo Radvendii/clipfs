@@ -50,39 +50,6 @@ pub const @"-E" = @"-E": {
     } });
 };
 
-/// posix error codes, but as an error{} set
-pub const ErrorE = ErrorE: {
-    const Type = std.builtin.Type;
-    const E = std.posix.E;
-    const fields = @typeInfo(E).Enum.fields;
-    var errors: [fields.len - 1]Type.Error = undefined;
-    var err_i = 0;
-    for (fields) |src| {
-        if (std.mem.eql(u8, src.name, "SUCCESS"))
-            continue;
-        errors[err_i].name = src.name;
-        err_i += 1;
-    }
-    break :ErrorE @Type(.{ .ErrorSet = &errors });
-};
-
-pub fn errorToE(e: ErrorE) @"-E" {
-    switch (e) {
-        inline else => |err| {
-            return @field(@"-E", @errorName(err));
-        },
-    }
-}
-
-pub fn successE(e: @"-E") ErrorE!void {
-    switch (e) {
-        .SUCCESS => return,
-        inline else => |err| {
-            return @field(ErrorE, @tagName(err));
-        },
-    }
-}
-
 // For some reason in std, DT is just a bunch of `const`s, rather than an enum. Here we turn it into an enum.
 // TODO: upstream
 pub const DT = DT: {

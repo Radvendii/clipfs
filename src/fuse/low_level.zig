@@ -72,7 +72,8 @@ pub const Callbacks = struct {
             },
             else => {
                 log.warn("received GetattrIn for non-existent nodeid {}", .{in.nodeid});
-                return error.NOENT;
+                out.setErr(.NOENT);
+                return;
             },
         }
     }
@@ -86,7 +87,8 @@ pub const Callbacks = struct {
             },
             else => {
                 log.warn("received OpenIn for non-existent nodeid {}", .{in.nodeid});
-                return error.NOENT;
+                out.setErr(.NOENT);
+                return;
             },
         }
     }
@@ -159,7 +161,8 @@ pub const Callbacks = struct {
         // `lookup_preparse()` callback could be optionally defined that only
         // takes in the nodeid
         if (in.nodeid != k.ROOT_ID or !std.mem.eql(u8, filename, "clipboard")) {
-            return error.NOENT;
+            out.setErr(.NOENT);
+            return;
         }
         out.appendOutStruct(k.EntryOut{
             .nodeid = 2,
@@ -202,7 +205,8 @@ pub const Callbacks = struct {
             },
             else => {
                 log.warn("received OpenIn for non-existent nodeid {}", .{in.nodeid});
-                return error.NOENT;
+                out.setErr(.NOENT);
+                return;
             },
         }
     }
@@ -210,7 +214,10 @@ pub const Callbacks = struct {
         _ = read_in; // autofix
         switch (in.nodeid) {
             2 => out.appendString(CLIPBOARD) catch @panic("clipboard too long"),
-            else => return error.NOENT,
+            else => {
+                out.setErr(.NOENT);
+                return;
+            },
         }
     }
     pub fn flush(_: *Dev, _: k.InHeader, _: k.FlushIn, _: *Dev.OutBuffer) !void {
