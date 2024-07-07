@@ -482,47 +482,47 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
 
             var out = OutBuffer.init(dev.version.minor, header.unique);
             const ReturnPayload = @typeInfo(@typeInfo(@TypeOf(callback)).Fn.return_type.?).ErrorUnion.payload;
-            if (opcode.OutStruct()) |OutStruct_| {
-                comptime var OutStruct = OutStruct_;
-                switch (OutStruct) {
-                    []k.Dirent, []k.DirentPlus => {
-                        setArg(&args, &arg_n, &out);
-                        OutStruct = void;
-                    },
-                    else => {},
-                }
-
-                // typecheck
-                comptime std.debug.assert(ReturnPayload == EOr(OutStruct));
-
-                switch (try @call(.auto, callback, args)) {
-                    .err => |err| {
-                        std.debug.assert(err != .SUCCESS);
-                        out.setErr(err);
-                    },
-                    .out => |ret| {
-                        // XXX: ugh horrible hack.
-                        switch (OutStruct) {
-                            []const u8 => out.appendBytes(ret) catch @panic("bytes too long"),
-                            k.CreateOut => {
-                                // these have independent compat sizes
-                                out.appendOutStruct(ret.entry_out) catch unreachable;
-                                out.appendOutStruct(ret.open_out) catch unreachable;
-                            },
-                            else => out.appendOutStruct(ret) catch unreachable,
-                        }
-                    },
-                }
-
-                if (out.isErr()) log.warn("responding to kernel with error: {s}", .{@tagName(out.header().@"error")});
-
-                if (opcode.OutStruct() != null)
-                    try dev.send(out);
-            } else {
+            comptime var OutStruct = opcode.OutStruct() orelse {
                 // kernel not expecting response
-                comptime std.debug.assert(ReturnPayload == void);
+                std.debug.assert(ReturnPayload == void);
                 try @call(.auto, callback, args);
+                return;
+            };
+
+            switch (OutStruct) {
+                []k.Dirent, []k.DirentPlus => {
+                    setArg(&args, &arg_n, &out);
+                    OutStruct = void;
+                },
+                else => {},
             }
+
+            // typecheck
+            comptime std.debug.assert(ReturnPayload == EOr(OutStruct));
+
+            switch (try @call(.auto, callback, args)) {
+                .err => |err| {
+                    std.debug.assert(err != .SUCCESS);
+                    out.setErr(err);
+                },
+                .out => |ret| {
+                    // XXX: ugh horrible hack.
+                    switch (OutStruct) {
+                        []const u8 => out.appendBytes(ret) catch @panic("bytes too long"),
+                        k.CreateOut => {
+                            // these have independent compat sizes
+                            out.appendOutStruct(ret.entry_out) catch unreachable;
+                            out.appendOutStruct(ret.open_out) catch unreachable;
+                        },
+                        else => out.appendOutStruct(ret) catch unreachable,
+                    }
+                },
+            }
+
+            if (out.isErr()) log.warn("responding to kernel with error: {s}", .{@tagName(out.header().@"error")});
+
+            if (opcode.OutStruct() != null)
+                try dev.send(out);
         },
     }
 }
