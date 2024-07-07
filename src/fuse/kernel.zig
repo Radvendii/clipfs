@@ -54,12 +54,13 @@ pub const @"-E" = @"-E": {
 // TODO: upstream
 pub const DT = DT: {
     const Type = std.builtin.Type;
-    const posixDT = @typeInfo(std.posix.DT).Struct;
-    var fields: [posixDT.decls.len]Type.EnumField = undefined;
-    for (posixDT.decls, &fields) |src, *dst| {
+    // TODO: is DT not a posix thing?
+    const linuxDT = @typeInfo(std.os.linux.DT).Struct;
+    var fields: [linuxDT.decls.len]Type.EnumField = undefined;
+    for (linuxDT.decls, &fields) |src, *dst| {
         dst.* = .{
             .name = src.name,
-            .value = @field(std.posix.DT, src.name),
+            .value = @field(std.os.linux.DT, src.name),
         };
     }
     break :DT @Type(.{ .Enum = .{

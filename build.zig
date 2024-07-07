@@ -25,10 +25,9 @@ pub fn build(b: *std.Build) void {
     // how long the trace is for @compileError()s
     b.reference_trace = 256;
 
-    // exe.linkSystemLibrary("x11");
-    // exe.linkSystemLibrary("magic");
-    // exe.linkSystemLibrary("fuse3");
-    // exe.linkLibC();
+    exe.linkSystemLibrary("x11");
+    exe.linkSystemLibrary("magic");
+    exe.linkLibC();
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

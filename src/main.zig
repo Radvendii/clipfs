@@ -1,9 +1,8 @@
 const std = @import("std");
-// const fuse = @import("fuse.zig");
-// const FuseOps = @import("FuseOps.zig");
-// const Clipboard = @import("Clipboard.zig");
+const Clipboard = @import("Clipboard.zig");
 const Dev = @import("fuse/Dev.zig");
 const FuseCallbacks = @import("FuseCallbacks.zig");
+const x = @import("x11.zig");
 
 // TODO: obviously shouldn't be hard-coded
 // needs to be root-owned for now
@@ -16,18 +15,43 @@ pub fn main() !void {
 
     var dev = try Dev.init(MNT);
     defer dev.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
+
+    var clip = try Clipboard.init(alloc);
+    defer clip.deinit();
+    errdefer clip.errdeinit();
+
     var callbacks = FuseCallbacks{
         .allocator = alloc,
-        .clipboard = try alloc.alloc(u8, 0),
+        .clipboard = &clip,
     };
-    defer alloc.free(callbacks.clipboard);
-    while (true) {
-        try dev.recv1(&callbacks);
-    }
 
-    // var clip = try Clipboard.init(alloc);
-    // defer clip.deinit();
-    // errdefer clip.errdeinit();
+    var pfds = [_]std.posix.pollfd{
+        .{
+            .fd = dev.fh.handle,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        },
+        .{
+            .fd = x.connectionNumber(),
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        },
+    };
+
+    while (true) {
+        x.flush();
+        // TODO: heard good things about epoll.
+        // select?
+        // ppoll?
+        // is there some higher-level zig stdlib interface?
+        for (&pfds) |*pfd| pfd.revents = 0;
+        _ = try std.posix.poll(&pfds, -1);
+
+        std.log.info("got something", .{});
+
+        if (pfds[0].revents != 0) try dev.recv1(&callbacks);
+        if (pfds[1].revents != 0) try clip.processEvent();
+    }
 
     // // Read in the new clipboard contents (the file specified as an argument, or stdin)
     // const in = std.io.getStdIn();

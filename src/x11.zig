@@ -148,6 +148,12 @@ pub fn maskEvent(event_mask: Event.Mask) Event {
 pub fn getAtomName(a: Atom) ![*:0]u8 {
     return DPY.getAtomName(a);
 }
+pub fn connectionNumber() std.posix.fd_t {
+    return DPY.connectionNumber();
+}
+pub fn flush() void {
+    return DPY.flush();
+}
 
 pub fn free(x: anytype) void {
     if (@typeInfo(@TypeOf(x)) != .Pointer) {
@@ -174,6 +180,9 @@ pub const Display = opaque {
             c.XCloseDisplay(dpy.raw()),
             error{BadGC},
         );
+    }
+    pub fn flush(dpy: *Display) void {
+        _ = c.XFlush(dpy.raw());
     }
 
     pub fn defaultScreen(dpy: *Display) ScreenNum {
@@ -233,6 +242,10 @@ pub const Display = opaque {
             @as([*:0]u8, @ptrCast(c.XGetAtomName(dpy.raw(), @intFromEnum(a)))),
             error{BadAtom},
         );
+    }
+
+    pub fn connectionNumber(dpy: *Display) std.posix.pid_t {
+        return @intCast(c.ConnectionNumber(dpy.raw()));
     }
 };
 

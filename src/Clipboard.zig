@@ -19,6 +19,7 @@ clipboard_mx: std.Thread.Mutex = .{},
 clipboard: []const u8,
 mime: [:0]const u8,
 xa_mime: x.Atom,
+// TODO: do I actually need the allocator here, or can i just pass it in to copy()
 allocator: std.mem.Allocator,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
@@ -67,31 +68,34 @@ pub fn errdeinit(self: *Self) void {
 }
 
 pub fn eventLoop(self: *Self) !noreturn {
-    while (true) {
-        // selection events can't be masked
-        const ev = x.nextEvent();
-        switch (ev.type) {
-            .SelectionClear => {
-                // TODO: this is triggering at startup for seemingly no reason
-                log.info("Lost selection ownership", .{});
-                // TODO: free clipboard memory?
-            },
-            .SelectionRequest => {
-                // is this copying it? is that a problem?
-                const sev = ev.selection_request;
-                log.info("Requestor: {x}", .{sev.requestor});
-                if (sev.property == x.Atom.None) {
-                    try reject(sev);
-                } else if (sev.target == self.XA.get(.TARGETS)) {
-                    try self.send_targets(sev);
-                } else if (sev.target == self.xa_mime) {
-                    try self.send_data(sev);
-                } else {
-                    try reject(sev);
-                }
-            },
-            else => {},
-        }
+    while (true) try self.processEvent();
+}
+
+pub fn processEvent(self: *Self) !void {
+    log.info("processing event", .{});
+    // selection events can't be masked
+    const ev = x.nextEvent();
+    switch (ev.type) {
+        .SelectionClear => {
+            // TODO: this is triggering at startup for seemingly no reason
+            log.info("Lost selection ownership", .{});
+            // TODO: free clipboard memory?
+        },
+        .SelectionRequest => {
+            // is this copying it? is that a problem?
+            const sev = ev.selection_request;
+            log.info("Requestor: {x}", .{sev.requestor});
+            if (sev.property == x.Atom.None) {
+                try reject(sev);
+            } else if (sev.target == self.XA.get(.TARGETS)) {
+                try self.send_targets(sev);
+            } else if (sev.target == self.xa_mime) {
+                try self.send_data(sev);
+            } else {
+                try reject(sev);
+            }
+        },
+        else => {},
     }
 }
 

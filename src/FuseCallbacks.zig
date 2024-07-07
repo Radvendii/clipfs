@@ -1,6 +1,7 @@
 const std = @import("std");
 const Dev = @import("fuse/Dev.zig");
 const EOr = Dev.EOr;
+const Clipboard = @import("Clipboard.zig");
 const k = @import("fuse/kernel.zig");
 const log = std.log.scoped(.@"fuse-callbacks");
 
@@ -24,7 +25,7 @@ const PrivateData = @This();
 
 generation: u64 = 1,
 allocator: std.mem.Allocator,
-clipboard: []u8,
+clipboard: *Clipboard,
 
 pub fn getattr(_: *PrivateData, in: k.InHeader, getattr_in: k.GetattrIn) !EOr(k.AttrOut) {
     _ = getattr_in; // autofix
@@ -338,8 +339,7 @@ pub fn write(this: *PrivateData, in: k.InHeader, write_in: k.WriteIn, bytes: []c
 
     switch (NodeId.from(in.nodeid)) {
         .PASTE => {
-            this.clipboard = try this.allocator.realloc(this.clipboard, bytes.len);
-            @memcpy(this.clipboard, bytes);
+            try this.clipboard.copy(bytes);
         },
         .ROOT, .COPY => {
             return .{ .err = .PERM };
