@@ -3,7 +3,7 @@ const std = @import("std");
 // const FuseOps = @import("FuseOps.zig");
 // const Clipboard = @import("Clipboard.zig");
 const Dev = @import("fuse/Dev.zig");
-const low_level = @import("fuse/low_level.zig");
+const FuseCallbacks = @import("FuseCallbacks.zig");
 
 // TODO: obviously shouldn't be hard-coded
 // needs to be root-owned for now
@@ -16,8 +16,9 @@ pub fn main() !void {
 
     var dev = try Dev.init(MNT);
     defer dev.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
+    var callbacks = FuseCallbacks{};
     while (true) {
-        try low_level.recv1(&dev, void);
+        try dev.recv1(&callbacks);
     }
 
     // var clip = try Clipboard.init(alloc);

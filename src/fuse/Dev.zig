@@ -235,7 +235,9 @@ pub fn init(mnt: [:0]const u8) !Dev {
         },
     };
 
-    dev.recv1(InitExchange) catch |err| switch (err) {
+    var init_exchange = InitExchange.@"1"{ .dev = &dev };
+
+    dev.recv1(&init_exchange) catch |err| switch (err) {
         error.Unimplemented => {
             log.err("kernel sent us another opcode before initializing.", .{});
             return error.NonCompliantKernel;
@@ -247,10 +249,9 @@ pub fn init(mnt: [:0]const u8) !Dev {
 }
 
 const InitExchange = struct {
-    // start at stage 1
-    pub usingnamespace @"1";
     pub const @"1" = struct {
-        pub fn init(dev: *Dev, _: k.InHeader, init_in: k.InitIn, out: *OutBuffer) !void {
+        dev: *Dev,
+        pub fn init(this: *InitExchange.@"1", _: k.InHeader, init_in: k.InitIn, out: *OutBuffer) !void {
             if (init_in.major < 7) {
                 // libfuse doesn't support it, so at least to begin with i'll follow suit
                 log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
@@ -262,24 +263,27 @@ const InitExchange = struct {
             // supported by the daemon, the reply shall consist of only uint32_t major
             // (following the usual header), indicating the largest major version
             // supported by the daemon.
-            if (init_in.major > dev.version.major) {
+            if (init_in.major > this.dev.version.major) {
                 out.appendInt(@as(u32, k.VERSION)) catch unreachable;
 
-                return dev.recv1(InitExchange.@"2");
+                var init_exchange_2 = InitExchange.@"2"{ .dev = this.dev };
+
+                return this.dev.recv1(&init_exchange_2);
             }
 
-            initKnownValid(dev, init_in, out);
+            initKnownValid(this.dev, init_in, out);
         }
     };
     pub const @"2" = struct {
+        dev: *Dev,
         // The kernel will then issue a new FUSE_INIT request conforming to the
         // older version.
-        pub fn init(dev: *Dev, _: k.InHeader, init_in: k.InitIn, out: *OutBuffer) !void {
-            if (init_in.major != dev.version.major) {
-                log.err("kernel refusing to conform to major version {}. Sending {} instead.", .{ dev.version.major, init_in.major });
+        pub fn init(this: *InitExchange.@"2", _: k.InHeader, init_in: k.InitIn, out: *OutBuffer) !void {
+            if (init_in.major != this.dev.version.major) {
+                log.err("kernel refusing to conform to major version {}. Sending {} instead.", .{ this.dev.version.major, init_in.major });
                 return error.NonCompliantKernel;
             }
-            initKnownValid(dev, init_in, out);
+            initKnownValid(this.dev, init_in, out);
         }
     };
     pub fn initKnownValid(dev: *Dev, init_in: k.InitIn, out: *OutBuffer) void {
@@ -324,7 +328,6 @@ pub fn CallbackArgsT(opcode: k.OpCode) type {
     const MAX_ARGS = 10;
     var arg_types_buf = [1]type{undefined} ** MAX_ARGS;
     var arg_types: []type = arg_types_buf[0..0];
-    setArgType(&arg_types, *Dev);
     setArgType(&arg_types, k.InHeader);
 
     if (opcode.InStruct()) |InStruct|
@@ -363,15 +366,15 @@ test "setArg" {
     std.testing.expectEqual(args, .{ 0, "hello" });
 }
 
-// TODO: i can make a recv1Alloc version too that allocates a buffer rather than putting them on the stack
-// this would allow the values to outlive the recv1 call
-// but do we really want that? any particular data you should copy out, you shouldn't be holding onto an API struct
-// QUESTION: are we guaranteed the kernel will never send us more than one message at the same time?
-// QUESTION: what if the kernel sends us messages in two writes, but we just read after both have been sent?
-// I'm thinking about this as a FIFO, but it's not. our read request gets sent directly to the kernel, so probably we only get one message at a time
-// TODO: we could define the types needed in CallbackArgsT(), and then here just loop over that and do the obvious thing for each one
-/// @Callbacks has a function for each opcode. see low_level.DevCallbacks for an example and to see what types are expected
-pub fn recv1(dev: *Dev, Callbacks: type) !void {
+fn ConcatTuples(comptime T1: type, comptime T2: type) type {
+    const t1: T1 = undefined;
+    const t2: T2 = undefined;
+    return @TypeOf(t1 ++ t2);
+}
+
+/// callbacks: *Callbacks
+pub fn recv1(dev: *Dev, callbacks: anytype) !void {
+    const Callbacks = @typeInfo(@TypeOf(callbacks)).Pointer.child;
     // everything in fuse is 8-byte-aligned
     var message_buf: [READ_BUF_SIZE]u8 align(8) = undefined;
     log.info("waiting for kernel message...", .{});
@@ -392,9 +395,13 @@ pub fn recv1(dev: *Dev, Callbacks: type) !void {
                 return error.Unimplemented;
             }
             const callback = @field(Callbacks, @tagName(opcode));
-            var args: CallbackArgsT(opcode) = undefined;
+            var args: ConcatTuples(
+                std.meta.Tuple(&[_]type{*Callbacks}),
+                CallbackArgsT(opcode),
+            ) = undefined;
             comptime var arg_n = 0;
-            setArg(&args, &arg_n, dev);
+            // pass the private data in as the first argument (this will look like a method to implement)
+            setArg(&args, &arg_n, callbacks);
             setArg(&args, &arg_n, header.*);
 
             const MaybeInStruct = opcode.InStruct();
