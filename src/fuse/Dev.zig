@@ -62,6 +62,10 @@ pub const OutBuffer = struct {
         return @constCast(&this).header().len;
     }
 
+    pub inline fn remaining(this: OutBuffer) u32 {
+        return WRITE_BUF_SIZE - this.len();
+    }
+
     pub inline fn isEmpty(this: OutBuffer) bool {
         return this.len() == @sizeOf(k.OutHeader);
     }
@@ -148,10 +152,14 @@ pub const OutBuffer = struct {
     }
 
     pub fn appendString(this: *OutBuffer, str: [:0]const u8) error{OutOfMemory}!void {
-        const new_pos = Align64.next(this.len() + str.len + 1);
+        return this.appendBytes(str[0 .. str.len + 1]);
+    }
+
+    pub fn appendBytes(this: *OutBuffer, bytes: []const u8) error{OutOfMemory}!void {
+        const new_pos = Align64.next(this.len() + bytes.len);
         if (new_pos > this.buf.len)
             return error.OutOfMemory;
-        @memcpy(this.buf[this.len()..][0 .. str.len + 1], str[0 .. str.len + 1]);
+        @memcpy(this.buf[this.len()..][0..bytes.len], bytes);
         this.pos().* = @intCast(new_pos);
     }
 };
@@ -235,88 +243,90 @@ pub fn init(mnt: [:0]const u8) !Dev {
         },
     };
 
-    var init_exchange = InitExchange.@"1"{ .dev = &dev };
+    var init_exchange = InitExchange{ .dev = &dev };
 
-    dev.recv1(&init_exchange) catch |err| switch (err) {
-        error.Unimplemented => {
-            log.err("kernel sent us another opcode before initializing.", .{});
-            return error.NonCompliantKernel;
-        },
-        else => return err,
-    };
+    try init_exchange.go();
 
     return dev;
 }
 
 const InitExchange = struct {
-    pub const @"1" = struct {
-        dev: *Dev,
-        pub fn init(this: *InitExchange.@"1", _: k.InHeader, init_in: k.InitIn, out: *OutBuffer) !void {
-            if (init_in.major < 7) {
-                // libfuse doesn't support it, so at least to begin with i'll follow suit
-                log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
-                return error.UnsupportedVersion;
-            }
+    dev: *Dev,
+    kernel_major_larger: bool = false,
 
-            // man fuse.4 (section FUSE_INIT)
-            // If the major version supported by the kernel is larger than that
-            // supported by the daemon, the reply shall consist of only uint32_t major
-            // (following the usual header), indicating the largest major version
-            // supported by the daemon.
-            if (init_in.major > this.dev.version.major) {
-                // XXX: this is silly. we never actually send this.
-                // we also have no way of testing this code path
-                out.appendInt(@as(u32, k.VERSION)) catch unreachable;
+    // TODO: handle errors so we can just return this
+    // pub const Error = error{ NonCompliantKernel, UnsupportedVersion };
 
-                var init_exchange_2 = InitExchange.@"2"{ .dev = this.dev };
+    pub fn go(this: *InitExchange) !void {
+        try this.recv1();
+        if (this.kernel_major_larger)
+            try this.recv1();
+    }
 
-                return this.dev.recv1(&init_exchange_2);
-            }
+    pub fn recv1(this: *InitExchange) !void {
+        this.dev.recv1(this) catch |err| switch (err) {
+            error.Unimplemented => {
+                log.err("kernel sent us another opcode before initializing.", .{});
+                return error.NonCompliantKernel;
+            },
+            else => return err,
+        };
+    }
 
-            initKnownValid(this.dev, init_in, out);
+    pub fn init(this: *InitExchange, _: k.InHeader, init_in: k.InitIn) !EOr(k.InitOut) {
+        if (init_in.major < 7) {
+            // libfuse doesn't support it, so at least to begin with i'll follow suit
+            log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
+            return error.UnsupportedVersion;
         }
-    };
-    pub const @"2" = struct {
-        dev: *Dev,
-        // The kernel will then issue a new FUSE_INIT request conforming to the
-        // older version.
-        pub fn init(this: *InitExchange.@"2", _: k.InHeader, init_in: k.InitIn, out: *OutBuffer) !void {
-            if (init_in.major != this.dev.version.major) {
+
+        // man fuse.4 (section FUSE_INIT)
+        // If the major version supported by the kernel is larger than that
+        // supported by the daemon, the reply shall consist of only uint32_t major
+        // (following the usual header), indicating the largest major version
+        // supported by the daemon.
+        if (init_in.major > this.dev.version.major) {
+            if (this.kernel_major_larger) {
+                // we've already been through this
                 log.err("kernel refusing to conform to major version {}. Sending {} instead.", .{ this.dev.version.major, init_in.major });
                 return error.NonCompliantKernel;
             }
-            initKnownValid(this.dev, init_in, out);
+
+            this.kernel_major_larger = true;
+            var out = std.mem.zeroes(k.InitOut);
+            out.major = k.VERSION;
+            return .{ .out = out };
         }
-    };
-    pub fn initKnownValid(dev: *Dev, init_in: k.InitIn, out: *OutBuffer) void {
         // the kernel is on an old version, we'll cede to it.
-        if (init_in.major < dev.version.major) {
-            dev.version = .{
+        if (init_in.major < this.dev.version.major) {
+            this.dev.version = .{
                 .major = init_in.major,
                 .minor = init_in.minor,
             };
-        } else if (init_in.minor < dev.version.minor) {
-            dev.version.minor = init_in.minor;
+        } else if (init_in.minor < this.dev.version.minor) {
+            this.dev.version.minor = init_in.minor;
         }
 
-        out.appendOutStruct(k.InitOut{
-            .major = dev.version.major,
-            .minor = dev.version.minor,
-            .max_readahead = init_in.max_readahead,
+        return .{
+            .out = k.InitOut{
+                .major = this.dev.version.major,
+                .minor = this.dev.version.minor,
+                .max_readahead = init_in.max_readahead,
 
-            // TODO: presumably we should only set the flags we actually want to support
-            .flags = init_in.flags,
-            .flags2 = init_in.flags2,
+                // TODO: presumably we should only set the flags we actually want to support
+                .flags = init_in.flags,
+                .flags2 = init_in.flags2,
 
-            // not sure what these are
-            // values taken from https://github.com/richiejp/m/blob/main/src/fuse.zig#L360-L365
-            .max_background = 0,
-            .congestion_threshold = 0,
-            .max_write = 4096,
-            .time_gran = 0,
-            .max_pages = 1,
-            .map_alignment = 1,
-        }) catch unreachable;
+                // not sure what these are
+                // values taken from https://github.com/richiejp/m/blob/main/src/fuse.zig#L360-L365
+                .max_background = 0,
+                .congestion_threshold = 0,
+                .max_write = 4096,
+                .time_gran = 0,
+                .max_pages = 1,
+                .map_alignment = 1,
+            },
+        };
     }
 };
 
@@ -341,7 +351,8 @@ pub fn CallbackArgsT(opcode: k.OpCode) type {
     if (opcode.bytesIn())
         setArgType(&arg_types, []const u8);
 
-    setArgType(&arg_types, *OutBuffer);
+    if (opcode.OutStruct() == []k.Dirent or opcode.OutStruct() == []k.DirentPlus)
+        setArgType(&arg_types, *OutBuffer);
 
     return std.meta.Tuple(arg_types);
 }
@@ -375,6 +386,14 @@ fn ConcatTuples(comptime T1: type, comptime T2: type) type {
     const t1: T1 = undefined;
     const t2: T2 = undefined;
     return @TypeOf(t1 ++ t2);
+}
+
+pub fn EOr(Out: type) type {
+    return union(enum) {
+        out: Out,
+        // TODO: annoyingly, this can represent the state .{ .err = .SUCESS }
+        err: k.@"-E",
+    };
 }
 
 /// callbacks: *Callbacks
@@ -462,13 +481,48 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
             std.debug.assert(pos == message.len);
 
             var out = OutBuffer.init(dev.version.minor, header.unique);
-            setArg(&args, &arg_n, &out);
+            const ReturnPayload = @typeInfo(@typeInfo(@TypeOf(callback)).Fn.return_type.?).ErrorUnion.payload;
+            if (opcode.OutStruct()) |OutStruct_| {
+                comptime var OutStruct = OutStruct_;
+                switch (OutStruct) {
+                    []k.Dirent, []k.DirentPlus => {
+                        setArg(&args, &arg_n, &out);
+                        OutStruct = void;
+                    },
+                    else => {},
+                }
 
-            try @call(.auto, callback, args);
+                // typecheck
+                comptime std.debug.assert(ReturnPayload == EOr(OutStruct));
 
-            if (out.isErr()) log.warn("responding to kernel with error: {s}", .{@tagName(out.header().@"error")});
+                switch (try @call(.auto, callback, args)) {
+                    .err => |err| {
+                        std.debug.assert(err != .SUCCESS);
+                        out.setErr(err);
+                    },
+                    .out => |ret| {
+                        // XXX: ugh horrible hack.
+                        switch (OutStruct) {
+                            []const u8 => out.appendBytes(ret) catch @panic("bytes too long"),
+                            k.CreateOut => {
+                                // these have independent compat sizes
+                                out.appendOutStruct(ret.entry_out) catch unreachable;
+                                out.appendOutStruct(ret.open_out) catch unreachable;
+                            },
+                            else => out.appendOutStruct(ret) catch unreachable,
+                        }
+                    },
+                }
 
-            try dev.send(out);
+                if (out.isErr()) log.warn("responding to kernel with error: {s}", .{@tagName(out.header().@"error")});
+
+                if (opcode.OutStruct() != null)
+                    try dev.send(out);
+            } else {
+                // kernel not expecting response
+                comptime std.debug.assert(ReturnPayload == void);
+                try @call(.auto, callback, args);
+            }
         },
     }
 }
@@ -498,6 +552,8 @@ pub fn outStructSize(comptime Data: type, minor_version: u32) usize {
         void,
         => return @sizeOf(Data),
 
+        k.CreateOut => @compileError(@typeName(Data) ++ " does not have an independent compat size. You must add it's components separately"),
+
         k.StatxOut,
         k.StatfsOut,
         k.LkOut,
@@ -524,9 +580,9 @@ pub fn inStructSize(comptime Data: type, minor_version: u32) usize {
         k.ReadIn,
         k.InitIn,
         k.FlushIn,
-        k.CreateIn,
         k.GetxattrIn,
         k.SetattrIn,
+        k.CreateIn,
         => @sizeOf(Data),
 
         k.WriteIn,

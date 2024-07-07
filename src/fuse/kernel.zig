@@ -216,11 +216,64 @@ pub const OpCode = enum(c_uint) {
     // SEE: https://github.com/hanwen/go-fuse/blob/master/fuse/opcode.go
 
     /// What struct do we send the kernel after the OutHeader when responding to this opcode
-    /// holding off on implementing this until it actually seems useful.
-    /// It's also not alwasy true. We might send an error, for example.
     pub fn OutStruct(op: OpCode) ?type {
-        _ = op;
-        @compileError("TODO: implement");
+        return switch (op) {
+            .init => InitOut,
+            .lookup => EntryOut,
+            .getattr, .setattr => AttrOut,
+            .symlink, .mknod, .mkdir, .link => EntryOut,
+            .open, .opendir => OpenOut,
+            .write, .copy_file_range => WriteOut,
+            .statfs => StatfsOut,
+            .getxattr, .listxattr => GetxattrOut,
+            .getlk => LkOut,
+            .create => CreateOut,
+            .bmap => BmapOut,
+            .ioctl => IoctlOut,
+            .poll => PollOut,
+            .lseek => LseekOut,
+
+            // these will have to be special-cased, since they have a FAM they cannot actually be represented this way
+            // TODO: maybe represent this by *anyopaque
+            .readdir => []Dirent,
+            .readdirplus => []DirentPlus,
+            // this also needs to be special-cased. it could overflow our buffer
+            .read => []const u8,
+
+            // no reply
+            .forget => null,
+
+            // TODO: haven't actually checked all of these
+            .readlink,
+            .unlink,
+            .rmdir,
+            .rename,
+            .release,
+            .fsync,
+            .setxattr,
+            .removexattr,
+            .flush,
+            .releasedir,
+            .fsyncdir,
+            .setlk,
+            .setlkw,
+            .access,
+            .interrupt,
+            .destroy,
+            .notify_reply,
+            .batch_forget,
+            .fallocate,
+            .rename2,
+            .setupmapping,
+            .removemapping,
+            .syncfs,
+            .tmpfile,
+            .statx,
+            .cuse_init,
+            .cuse_init_bswap_reserved,
+            .init_bswap_reserved,
+            => void,
+        };
     }
 
     /// What struct will the kernel send after the InHeader (or possible none)
@@ -447,7 +500,7 @@ pub const SetattrIn = extern struct {
     unused5: u32 = zeroes(u32),
 
     // FATTR_* in linux/fuse.h source
-    // says "bitmasks for fuse_seettattr_in.valid"
+    // says "bitmasks for fuse_setattr_in.valid"
     pub const Valid = packed struct(u32) {
         mode: bool = false,
         uid: bool = false,
@@ -480,6 +533,11 @@ pub const CreateIn = extern struct {
     mode: u32,
     umask: u32,
     open_flags: OpenInFlags,
+};
+/// This is not actually in the kernel's fuse.h, but it is the expected response from a create operation
+pub const CreateOut = extern struct {
+    entry_out: EntryOut,
+    open_out: OpenOut,
 };
 // FOPEN_* in linux/fuse.h source
 // says "flags returned by the OPEN request"
