@@ -264,6 +264,8 @@ const InitExchange = struct {
             // (following the usual header), indicating the largest major version
             // supported by the daemon.
             if (init_in.major > this.dev.version.major) {
+                // XXX: this is silly. we never actually send this.
+                // we also have no way of testing this code path
                 out.appendInt(@as(u32, k.VERSION)) catch unreachable;
 
                 var init_exchange_2 = InitExchange.@"2"{ .dev = this.dev };
@@ -336,6 +338,9 @@ pub fn CallbackArgsT(opcode: k.OpCode) type {
     for (0..opcode.nFiles()) |_|
         setArgType(&arg_types, [:0]const u8);
 
+    if (opcode.bytesIn())
+        setArgType(&arg_types, []const u8);
+
     setArgType(&arg_types, *OutBuffer);
 
     return std.meta.Tuple(arg_types);
@@ -390,6 +395,7 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
 
     switch (header.opcode) {
         inline else => |opcode| {
+            var bytes_arg_size: u32 = undefined;
             if (!@hasDecl(Callbacks, @tagName(opcode))) {
                 log.err("Callback not provided for {s}", .{@tagName(opcode)});
                 return error.Unimplemented;
@@ -404,11 +410,16 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
             setArg(&args, &arg_n, callbacks);
             setArg(&args, &arg_n, header.*);
 
-            const MaybeInStruct = opcode.InStruct();
+            const MaybeInStruct = comptime opcode.InStruct();
             if (MaybeInStruct) |InStruct| {
-                const size = dev.inStructSize(InStruct);
+                const size = inStructSize(InStruct, dev.version.minor);
                 std.debug.assert(pos + size <= message.len);
+                // TODO: this will give us garbage for the rest of the struct. what we want is 0s for sure.
                 const in_struct: *const InStruct = @alignCast(@ptrCast(&message[pos]));
+                if (comptime opcode.bytesIn())
+                    // this field better exist for those opcodes
+                    bytes_arg_size = in_struct.size;
+
                 pos += size;
                 log.info("received: {}", .{in_struct});
                 setArg(&args, &arg_n, in_struct.*);
@@ -431,10 +442,21 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
                 } else {
                     // TODO: the go code seems to split on 0-bytes, which makes sense except
                     // 1. how does it deal with alignment
+                    //    probably not a problem since it just needs to be u8 aligned
                     // 2. how does it deal with offsets?
+                    //    what does this even mean?
                     // SEE: https://github.com/hanwen/go-fuse/blob/master/fuse/request.go#L206
                     log.err("TODO: implement code for handling operations that send multiple filenames", .{});
                 }
+            }
+
+            if (comptime opcode.bytesIn()) {
+                const bytes = message[pos..][0..bytes_arg_size];
+                log.info("received bytes", .{});
+                setArg(&args, &arg_n, bytes);
+                pos += bytes_arg_size;
+                log.info("skipping {} extra bytes", .{message.len - pos});
+                pos = message.len;
             }
 
             std.debug.assert(pos == message.len);
@@ -468,12 +490,16 @@ pub fn outStructSize(comptime Data: type, minor_version: u32) usize {
             0...8 => k.EntryOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
-        k.OpenOut, k.Dirent, k.DirentPlus, void => return @sizeOf(Data),
+        k.OpenOut,
+        k.Dirent,
+        k.DirentPlus,
+        k.GetxattrOut,
+        k.WriteOut,
+        void,
+        => return @sizeOf(Data),
 
         k.StatxOut,
-        k.WriteOut,
         k.StatfsOut,
-        k.GetxattrOut,
         k.LkOut,
         k.BmapOut,
         k.IoctlOut,
@@ -490,8 +516,7 @@ pub fn outStructSize(comptime Data: type, minor_version: u32) usize {
     }
 }
 
-pub fn inStructSize(dev: *const Dev, comptime Data: type) usize {
-    _ = dev;
+pub fn inStructSize(comptime Data: type, minor_version: u32) usize {
     return switch (Data) {
         k.GetattrIn,
         k.OpenIn,
@@ -499,13 +524,19 @@ pub fn inStructSize(dev: *const Dev, comptime Data: type) usize {
         k.ReadIn,
         k.InitIn,
         k.FlushIn,
+        k.CreateIn,
+        k.GetxattrIn,
         => @sizeOf(Data),
 
-        k.GetxattrIn,
+        k.WriteIn,
+        => switch (minor_version) {
+            0...8 => Data.COMPAT_SIZE,
+            else => @sizeOf(Data),
+        },
+
         k.SetattrIn,
         k.IoctlIn,
         k.MknodIn,
-        k.CreateIn,
         k.AccessIn,
         k.ForgetIn,
         k.BatchForgetIn,
@@ -514,7 +545,6 @@ pub fn inStructSize(dev: *const Dev, comptime Data: type) usize {
         k.FallocateIn,
         k.RenameIn,
         k.Rename2In,
-        k.WriteIn,
         k.FsyncIn,
         k.SetxattrIn,
         k.LkIn,

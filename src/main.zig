@@ -10,13 +10,16 @@ const FuseCallbacks = @import("FuseCallbacks.zig");
 const MNT = "/home/qolen/personal/clipfs/mnt";
 
 pub fn main() !void {
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // defer std.debug.assert(gpa.deinit() == .ok);
-    // const alloc = gpa.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const alloc = gpa.allocator();
 
     var dev = try Dev.init(MNT);
     defer dev.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
-    var callbacks = FuseCallbacks{};
+    var callbacks = FuseCallbacks{
+        .allocator = alloc,
+        .clipboard = try alloc.alloc(u8, 0),
+    };
     while (true) {
         try dev.recv1(&callbacks);
     }

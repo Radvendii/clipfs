@@ -327,6 +327,17 @@ pub const OpCode = enum(c_uint) {
             => 2,
         };
     }
+
+    /// Does this opcode come with a binary argument at the end
+    pub fn bytesIn(op: OpCode) bool {
+        return switch (op) {
+            .write,
+            .setxattr,
+            => true,
+            // TODO: come back to this. i haven't actually looked into all of them
+            else => false,
+        };
+    }
 };
 pub const NotifyCode = enum(c_uint) {
     poll = 1,
