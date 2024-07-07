@@ -309,6 +309,34 @@ pub fn getxattr(_: *PrivateData, _: k.InHeader, _: k.GetxattrIn, attr: [:0]const
     // });
 }
 
+pub fn setattr(_: *PrivateData, _: k.InHeader, _: k.SetattrIn, out: *Dev.OutBuffer) !void {
+    out.setOutStruct(k.AttrOut{
+        .attr_valid = 0,
+        .attr_valid_nsec = 0,
+        .attr = .{
+            .ino = 1,
+            .size = 0,
+            .blocks = 0,
+            .atime = 0,
+            .atimensec = 0,
+            .mtime = 0,
+            .mtimensec = 0,
+            .ctime = 0,
+            .ctimensec = 0,
+            .mode = std.posix.S.IFREG | 0o0755,
+            .nlink = 1,
+            .uid = 0,
+            .gid = 0,
+            .rdev = 0,
+            .blksize = 0,
+            .flags = .{
+                .submount = false,
+                .dax = false,
+            },
+        },
+    });
+}
+
 pub fn write(this: *PrivateData, in: k.InHeader, write_in: k.WriteIn, bytes: []const u8, out: *Dev.OutBuffer) !void {
     std.debug.assert(write_in.offset == 0);
 

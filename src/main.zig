@@ -20,6 +20,7 @@ pub fn main() !void {
         .allocator = alloc,
         .clipboard = try alloc.alloc(u8, 0),
     };
+    defer alloc.free(callbacks.clipboard);
     while (true) {
         try dev.recv1(&callbacks);
     }

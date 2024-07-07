@@ -526,6 +526,7 @@ pub fn inStructSize(comptime Data: type, minor_version: u32) usize {
         k.FlushIn,
         k.CreateIn,
         k.GetxattrIn,
+        k.SetattrIn,
         => @sizeOf(Data),
 
         k.WriteIn,
@@ -534,7 +535,6 @@ pub fn inStructSize(comptime Data: type, minor_version: u32) usize {
             else => @sizeOf(Data),
         },
 
-        k.SetattrIn,
         k.IoctlIn,
         k.MknodIn,
         k.AccessIn,
