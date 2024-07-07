@@ -7,11 +7,17 @@ const log = std.log.scoped(.@"fuse-callbacks");
 // TODO: integrate with clipboard code
 const CLIPBOARD = "<the clipboard contents>";
 
-const NodeID = enum(u64) {
+const NodeId = enum(u64) {
     ROOT = k.ROOT_ID,
     COPY,
     PASTE,
     _,
+    pub inline fn to(nodeid: NodeId) u64 {
+        return @intFromEnum(nodeid);
+    }
+    pub inline fn from(nodeid: u64) NodeId {
+        return @enumFromInt(nodeid);
+    }
 };
 
 const PrivateData = @This();
@@ -24,7 +30,7 @@ pub fn getattr(_: *PrivateData, in: k.InHeader, getattr_in: k.GetattrIn) !EOr(k.
     _ = getattr_in; // autofix
     // std.debug.assert(getattr_in.getattr_flags.fh == false);
 
-    switch (@as(NodeID, @enumFromInt(in.nodeid))) {
+    switch (NodeId.from(in.nodeid)) {
         .ROOT => return .{ .out = k.AttrOut{
             .attr_valid = 0,
             .attr_valid_nsec = 0,
@@ -225,7 +231,7 @@ pub fn lookup(_: *PrivateData, in: k.InHeader, filename: [:0]const u8) !EOr(k.En
     };
 }
 pub fn open(_: *PrivateData, in: k.InHeader, _: k.OpenIn) !EOr(k.OpenOut) {
-    switch (@as(NodeID, @enumFromInt(in.nodeid))) {
+    switch (NodeId.from(in.nodeid)) {
         .COPY => return .{ .out = k.OpenOut{
             .fh = 1,
             .open_flags = .{},
@@ -238,7 +244,7 @@ pub fn open(_: *PrivateData, in: k.InHeader, _: k.OpenIn) !EOr(k.OpenOut) {
 }
 pub fn read(_: *PrivateData, in: k.InHeader, read_in: k.ReadIn) !EOr([]const u8) {
     _ = read_in; // autofix
-    switch (@as(NodeID, @enumFromInt(in.nodeid))) {
+    switch (NodeId.from(in.nodeid)) {
         .COPY => return .{ .out = CLIPBOARD },
         else => return .{ .err = .NOENT },
     }
@@ -256,7 +262,7 @@ pub fn create(this: *PrivateData, _: k.InHeader, create_in: k.CreateIn, _: [:0]c
 
     return .{ .out = .{
         .entry_out = k.EntryOut{
-            .nodeid = @intFromEnum(NodeID.PASTE),
+            .nodeid = NodeId.PASTE.to(),
             .generation = this.generation,
             .entry_valid = 0,
             .entry_valid_nsec = 0,
@@ -330,7 +336,7 @@ pub fn setattr(_: *PrivateData, _: k.InHeader, _: k.SetattrIn) !EOr(k.AttrOut) {
 pub fn write(this: *PrivateData, in: k.InHeader, write_in: k.WriteIn, bytes: []const u8) !EOr(k.WriteOut) {
     std.debug.assert(write_in.offset == 0);
 
-    switch (@as(NodeID, @enumFromInt(in.nodeid))) {
+    switch (NodeId.from(in.nodeid)) {
         .PASTE => {
             this.clipboard = try this.allocator.realloc(this.clipboard, bytes.len);
             @memcpy(this.clipboard, bytes);
