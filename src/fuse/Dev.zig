@@ -1,12 +1,13 @@
 /// takes care of opening, mounting, reading and writing to /dev/fuse. provides a slightly more convenient interface.
 /// THREAD_SAFETY: a single Dev should **not** be shared between threads. in the future, there will be an interface for duplicating a Dev to be used in another thread, but this is not yet implemented.
+// TODO: this should be async though... you don't want to stop up all processing because one operation is taking a while
+// when that happens, we will need to not have just one write buffer. maybe there's a method to get one, or maybe it's passed into the callbacks
 const Dev = @This();
 
 const std = @import("std");
 const log = std.log.scoped(.@"/dev/fuse");
 
-pub const k = @import("kernel.zig");
-pub const buffered_writer = @import("buffered_writer.zig");
+const k = @import("kernel.zig");
 
 /// Must be > MIN_READ_BUFFER. The kernel wants to read/write in discrete units
 /// of an entire message (header + body). Otherwise it will return EINVAL.
@@ -15,24 +16,9 @@ pub const READ_BUF_SIZE = 2 * k.MIN_READ_BUFFER;
 /// of an entire message (header + body). Otherwise it will return EINVAL.
 pub const WRITE_BUF_SIZE = 2 * k.MIN_READ_BUFFER;
 
-const WRITER_OPTS = buffered_writer.BufferedWriterOptions{
-    .buffer_size = WRITE_BUF_SIZE,
-    // everything here is at most align(@sizeOf(u64)), and it will be convenient to be able to @ptrCast() the buffer
-    .buffer_align = @alignOf(u64),
-    // The point of the buffer is to ensure we don't send partial packets to the kernel. If we write past the end of the buffer, that's an error.
-    .automatic_flush = false,
-};
-
 fh: std.fs.File,
-_writer: buffered_writer.BufferedWriter(std.fs.File.Writer, WRITER_OPTS),
-/// For receiving messages from the kernel. This must be done carefully, as the kernel expects to have a large enough buffer to write in that it never needs to send partial messages.
-reader: std.fs.File.Reader,
 version: struct { major: u32, minor: u32 },
 mnt: [:0]const u8,
-
-pub inline fn writer(dev: *Dev) @TypeOf(dev._writer).Writer {
-    return dev._writer.writer();
-}
 
 /// buffer for outgoing messages to the kernel
 pub const OutBuffer = struct {
@@ -228,14 +214,9 @@ pub fn init(mnt: [:0]const u8) !Dev {
     }
     errdefer unmount(mnt) catch @panic("failed to unmount");
 
-    const writer_unbuffered = fh.writer();
-    const _writer = buffered_writer.bufferedWriterOpts(writer_unbuffered, WRITER_OPTS);
-
     var dev = Dev{
         .mnt = mnt,
         .fh = fh,
-        ._writer = _writer,
-        .reader = fh.reader(),
         // Initial version. This will get modified when we exchange Init structs with the kernel
         .version = .{
             .major = k.VERSION,
@@ -402,7 +383,7 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
     // everything in fuse is 8-byte-aligned
     var message_buf: [READ_BUF_SIZE]u8 align(8) = undefined;
     log.info("waiting for kernel message...", .{});
-    const message_len = try dev.reader.readAtLeast(&message_buf, @sizeOf(k.InHeader));
+    const message_len = try dev.fh.reader().readAtLeast(&message_buf, @sizeOf(k.InHeader));
     log.info("got it!", .{});
     const message: []align(8) const u8 = message_buf[0..message_len];
 
