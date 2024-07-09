@@ -3,5 +3,4 @@ zig-out
 result
 result-*
 .direnv
-fuse-tutorial
 mnt/
