@@ -1,3 +1,4 @@
+// TODO: move to XCB?
 const std = @import("std");
 pub const c = @cImport({
     @cInclude("X11/Xlib.h");
@@ -17,43 +18,14 @@ fn IntFromAny(T: type) type {
     return std.meta.Int(.unsigned, @bitSizeOf(T));
 }
 
-// zig seems pathological about not letting me just @bitCast() from an arbitrary type to int, so we have to use this convoluted mess
-// but I suppose it's also pathological that x11 uses error codes in their pointer return values
-fn asInt_helper(In: type, Out: type, t: anytype) Out {
-    return switch (@typeInfo(In)) {
-        .Type,
-        .Void,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .ErrorUnion,
-        .ErrorSet,
-        .NoReturn,
-        .Fn,
-        .Opaque,
-        .Frame,
-        .AnyFrame,
-        .Vector,
-        .EnumLiteral,
-        => @compileError("Can't convert " ++ @typeName(In) ++ " to an int"),
-        .Bool => @intFromBool(t),
-        .Int => @intCast(t),
-        .Float,
-        .Union,
-        .Struct,
-        => @bitCast(t),
-        .Pointer,
-        .Array,
-        => @intFromPtr(t),
-        .Enum => @intFromEnum(t),
-        .Optional => |opt| asInt_helper(opt.child, Out, t),
-    };
-}
-
 // XXX: does this exist in std?
-fn asInt(t: anytype) IntFromAny(@TypeOf(t)) {
-    return asInt_helper(@TypeOf(t), IntFromAny(@TypeOf(t)), t);
+fn asInt(x: anytype) IntFromAny(@TypeOf(x)) {
+    // zig has several ways to cast to ints (@intFromEnum, @intFromPtr, @intCast, @bitCast)
+    // we want a general strategy, so we @ptrCcast a pointer to the object
+    const x_ptr = &x;
+    const int_ptr: *const IntFromAny(@TypeOf(x)) = @ptrCast(x_ptr);
+    const int = int_ptr.*;
+    return int;
 }
 
 fn ptrArrayLen(comptime T: type) usize {
