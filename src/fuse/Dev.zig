@@ -185,8 +185,8 @@ pub const Align64 = struct {
     }
 };
 
-pub fn init(mnt: [:0]const u8) !Dev {
-    const fh = try std.fs.openFileAbsolute("/dev/fuse", .{ .mode = .read_write });
+pub fn init(allocator: std.mem.Allocator, mnt: [:0]const u8) !Dev {
+    const fh = try fusermount(allocator, mnt);
     errdefer fh.close();
 
     var buf: [256]u8 = undefined;
@@ -603,6 +603,7 @@ pub fn inStructSize(comptime Data: type, minor_version: u32) usize {
 }
 
 pub fn unmount(mnt: [:0]const u8) !void {
+    // TODO: use fusermount
     if (false) {
         switch (std.posix.errno(std.os.linux.umount(mnt))) {
             .SUCCESS => {},
@@ -612,6 +613,175 @@ pub fn unmount(mnt: [:0]const u8) !void {
             },
         }
     }
+}
+
+// TODO: all this should go upstream in stdlib
+const Cmsg = extern struct {
+    len: usize,
+    level: i32,
+    type: SCM,
+    _data: [0]u8,
+
+    pub const SCM = enum(i32) {
+        RIGHTS = 0x01,
+        // TODO: These only exist if __USE_GNU is defined
+        CREDENTIALS = 0x02,
+        SECURITY = 0x03,
+        PIDFD = 0x04,
+        _,
+    };
+
+    pub inline fn data(cmsg: *const Cmsg) []const u8 {
+        return @ptrCast(&cmsg._data);
+    }
+    pub inline fn next(msg: *const std.posix.msghdr, cmsg: *const Cmsg) ?*const Cmsg {
+
+        // the current header is malformed. too small to be a full header
+        // this is a weird check to do here. surely we're already screwed?
+        if (Cmsg.len < @sizeOf(Cmsg)) return null;
+
+        const msg_control_end = @intFromPtr(msg) + msg.controllen;
+        const cmsg_end = @intFromPtr(cmsg) + cmsg.len;
+        const space_left = msg_control_end - cmsg_end;
+        const space_needed = @sizeOf(Cmsg) + Cmsg.padding(cmsg.len);
+        if (space_left < space_needed) return null;
+
+        const cmsg_ptr: [*]const u8 = @ptrCast(cmsg);
+
+        return @ptrCast(cmsg_ptr[Cmsg.@"align"(cmsg.len)]);
+    }
+    pub inline fn first(msg: *const std.posix.msghdr) ?*const Cmsg {
+        return if (msg.controllen < @sizeOf(Cmsg))
+            null
+        else
+            @alignCast(@ptrCast(msg.control));
+    }
+    // TODO: combine this with the Align64 stuff above and generalize
+    pub inline fn @"align"(len_: usize) usize {
+        const lower_bits: usize = @sizeOf(usize) - 1;
+        const upper_bits: usize = ~lower_bits;
+        return len_ + lower_bits & upper_bits;
+    }
+    pub inline fn space(len_: usize) usize {
+        return Cmsg.@"align"(len_) + Cmsg.@"align"(@sizeOf(Cmsg));
+    }
+    pub inline fn len(len_: usize) usize {
+        return Cmsg.@"align"(@sizeOf(Cmsg)) + len_;
+    }
+    pub inline fn padding(len_: usize) usize {
+        const lower_bits: usize = @sizeOf(usize) - 1;
+        // return len - Cmsg.@"align"(len);
+        return (@sizeOf(usize) - (len_ & lower_bits)) & lower_bits;
+    }
+};
+
+// I resent needing an allocator at all, since everything is nicely bounded. And needing to construct an EnvMap with 1 item just to turn it into an array of strings is silly.
+// but this isn't in a hotloop :sigh:
+// TODO: look into (undocumented) --auto-unmount
+// when we do, we'll need to figure out closing the file handles on the child process
+pub fn fusermount(arena: std.mem.Allocator, mnt: [:0]const u8) !std.fs.File {
+    const l = std.os.linux;
+    var fds: [2]std.posix.fd_t = undefined;
+    switch (std.posix.errno(l.socketpair(l.AF.UNIX, l.SOCK.SEQPACKET, 0, &fds))) {
+        .SUCCESS => {},
+        else => |err| {
+            log.err("socketpair(): {}", .{err});
+            return error.SocketPair;
+        },
+    }
+    const local = std.fs.File{ .handle = fds[0] };
+    defer local.close();
+    const remote = std.fs.File{ .handle = fds[1] };
+    defer remote.close();
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+    const exe =
+        which("fusermount3", &path_buf) orelse
+        which("fusermount", &path_buf) orelse
+        @panic("no fusermount executable found");
+
+    var env_map = std.process.EnvMap.init(arena);
+    // var env_map = try std.process.getEnvMap(allocator);
+    // defer env_map.deinit();
+    try env_map.put("_FUSE_COMMFD", try std.fmt.allocPrint(arena, "{d}", .{remote.handle}));
+
+    var proc = std.process.Child.init(&.{ exe, "--", mnt }, arena);
+    proc.env_map = &env_map;
+    proc.stdin_behavior = .Close;
+    proc.stdout_behavior = .Inherit;
+    proc.stderr_behavior = .Inherit;
+
+    switch (try proc.spawnAndWait()) {
+        .Exited => |rc| if (rc == 0) {} else {
+            return error.FusermountFailed;
+        },
+        else => return error.FusermountFailed,
+    }
+
+    /////////////////////////////////////
+    // Here Be Dragons
+    // most of this is copied from libfuse/lib/mount.c
+    // this appears to be a super arcane kernel interface, so there's no nice wrapping in zig (even some of the macros are missing)
+    /////////////////////////////////////
+
+    var buf: [1]u8 = undefined;
+
+    var iovs: [1]std.posix.iovec = .{.{
+        .base = &buf,
+        .len = buf.len,
+    }};
+
+    var ccmsg: [Cmsg.space(@sizeOf(u32))]u8 = undefined;
+
+    var msg: std.posix.msghdr = .{
+        .name = null,
+        .namelen = 0,
+        .iov = &iovs,
+        .iovlen = iovs.len,
+        .control = @ptrCast(&ccmsg),
+        .controllen = ccmsg.len,
+        .flags = 0,
+    };
+
+    while (true) {
+        switch (std.posix.errno(l.recvmsg(local.handle, &msg, 0))) {
+            .SUCCESS => break,
+            .INTR => continue,
+            else => |err| {
+                log.err("recvmsg(): {}", .{err});
+                return error.RecvmsgFailed;
+            },
+        }
+    }
+    const cmsg = Cmsg.first(&msg) orelse return error.CmsgBroken;
+    if (cmsg.type != .RIGHTS)
+        log.err("got control message of wrong type {d}", .{cmsg.type});
+
+    const fd_ptr: *const std.posix.fd_t = @ptrCast(&cmsg._data);
+
+    return .{ .handle = fd_ptr.* };
+}
+
+pub fn which(file: []const u8, out_buffer: *[std.fs.max_path_bytes]u8) ?[]const u8 {
+    const PATH = std.posix.getenvZ("PATH") orelse return null;
+    return lookup(file, PATH, out_buffer);
+}
+
+pub fn lookup(file: []const u8, path: []const u8, out_buffer: *[std.fs.max_path_bytes]u8) ?[]u8 {
+    // TODO: check whether it is faster to first open the directory and call std.fs.Dir.access() before concatenating the paths
+    var path_it = std.mem.tokenizeScalar(u8, path, ':');
+    while (path_it.next()) |a_path| {
+        const resolved_path = std.fmt.bufPrintZ(out_buffer, "{s}/{s}", .{
+            a_path,
+            file,
+        }) catch continue;
+
+        if (std.fs.accessAbsolute(resolved_path, .{})) |_| {
+            return resolved_path;
+        } else |_| {}
+    }
+    return null;
 }
 
 pub fn deinit(dev: Dev) !void {

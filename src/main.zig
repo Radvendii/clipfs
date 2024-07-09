@@ -13,7 +13,13 @@ pub fn main() !void {
     defer std.debug.assert(gpa.deinit() == .ok);
     const alloc = gpa.allocator();
 
-    var dev = try Dev.init(MNT);
+    var dev = dev: {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+
+        break :dev try Dev.init(arena.allocator(), MNT);
+    };
+
     defer dev.deinit() catch |err| std.debug.panic("Fuse failed to deinit: {}", .{err});
 
     var clip = try Clipboard.init(alloc);

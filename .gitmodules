@@ -1,0 +1,3 @@
+[submodule "deps/zig"]
+	path = deps/zig
+	url = git@github.com:radvendii/zig

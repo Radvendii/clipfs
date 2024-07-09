@@ -32,7 +32,11 @@
         gdb
         zls
 
-        fuse3
+        # we have to be careful not to shadow the installed suid fusermount3
+        (pkgs.fuse3.overrideAttrs { 
+          outputs = [ "out" "dev" "common" ]; 
+          propagatedBuildOutputs = [];
+        }).dev
         xorg.libX11
         xorg.libXfixes # don't know if we need this yet
         file
