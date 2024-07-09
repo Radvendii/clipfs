@@ -331,7 +331,7 @@ pub const OpCode = enum(c_uint) {
     }
 
     /// How many file name arguments will the kernel send
-    pub fn nFiles(op: OpCode) u8 {
+    pub fn stringArgs(op: OpCode) u8 {
         return switch (op) {
             .flush,
             .getattr,
@@ -393,7 +393,7 @@ pub const OpCode = enum(c_uint) {
     }
 
     /// Does this opcode come with a binary argument at the end
-    pub fn bytesIn(op: OpCode) bool {
+    pub fn bytesArg(op: OpCode) bool {
         return switch (op) {
             .write,
             .setxattr,

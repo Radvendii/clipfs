@@ -326,10 +326,10 @@ pub fn CallbackArgsT(opcode: k.OpCode) type {
     if (opcode.InStruct()) |InStruct|
         setArgType(&arg_types, InStruct);
 
-    for (0..opcode.nFiles()) |_|
+    for (0..opcode.stringArgs()) |_|
         setArgType(&arg_types, [:0]const u8);
 
-    if (opcode.bytesIn())
+    if (opcode.bytesArg())
         setArgType(&arg_types, []const u8);
 
     if (opcode.OutStruct() == []k.Dirent or opcode.OutStruct() == []k.DirentPlus)
@@ -377,21 +377,68 @@ pub fn EOr(Out: type) type {
     };
 }
 
+pub fn OptionallyFormat(comptime T: type) type {
+    return struct {
+        data: ?T,
+        pub fn format(opt: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            if (opt.data) |d| try std.fmt.formatType(d, fmt, options, writer, std.options.fmt_max_depth);
+        }
+    };
+}
+
+pub fn optionallyFormat(opt: anytype) OptionallyFormat(@typeInfo(@TypeOf(opt)).Optional.child) {
+    return .{ .data = opt };
+}
+
+pub fn formatIf(cond: bool, data: anytype) OptionallyFormat(@TypeOf(data)) {
+    return .{ .data = if (cond) data else null };
+}
+
+pub fn SubFormat(comptime sub_fmt: []const u8, Args: type) type {
+    return struct {
+        args: Args,
+        pub fn format(this: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            // only usable as {}
+            std.debug.assert(fmt.len == 0);
+            std.debug.assert(std.meta.eql(options, std.fmt.FormatOptions{}));
+
+            try std.fmt.format(writer, sub_fmt, this.args);
+        }
+    };
+}
+
+pub fn subFormat(comptime sub_fmt: []const u8, args: anytype) SubFormat(sub_fmt, @TypeOf(args)) {
+    return .{ .args = args };
+}
+
 /// callbacks: *Callbacks
 pub fn recv1(dev: *Dev, callbacks: anytype) !void {
     const Callbacks = @typeInfo(@TypeOf(callbacks)).Pointer.child;
     // everything in fuse is 8-byte-aligned
     var message_buf: [READ_BUF_SIZE]u8 align(8) = undefined;
-    log.info("waiting for kernel message...", .{});
+    log.debug("waiting for kernel message...", .{});
     const message_len = try dev.fh.reader().readAtLeast(&message_buf, @sizeOf(k.InHeader));
-    log.info("got it!", .{});
+    log.debug("got it!", .{});
     const message: []align(8) const u8 = message_buf[0..message_len];
 
     var pos: usize = 0;
     const header: *const k.InHeader = @alignCast(@ptrCast(&message[pos]));
     pos += @sizeOf(k.InHeader);
     std.debug.assert(header.len == message.len);
-    log.info("received: {}", .{header});
+    log.debug("received .{[opcode]s} [{[unique]}] {[len]} bytes from pid {[pid]}{[uidgid]}{[extlen]}", .{
+        .unique = @intFromEnum(header.unique),
+        .opcode = @tagName(header.opcode),
+        .len = header.len,
+        .pid = header.pid,
+        .uidgid = formatIf(
+            header.pid != 0 and (header.uid != std.os.linux.geteuid() or header.gid != std.os.linux.getegid()),
+            subFormat("(uid {}, gid {})", .{ header.uid, header.gid }),
+        ),
+        .extlen = formatIf(
+            header.total_extlen != 0,
+            subFormat(" | extlen: {}", .{header.total_extlen}),
+        ),
+    });
 
     switch (header.opcode) {
         inline else => |opcode| {
@@ -416,28 +463,26 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
                 std.debug.assert(pos + size <= message.len);
                 // TODO: this will give us garbage for the rest of the struct. what we want is 0s for sure.
                 const in_struct: *const InStruct = @alignCast(@ptrCast(&message[pos]));
-                if (comptime opcode.bytesIn())
+                if (comptime opcode.bytesArg())
                     // this field better exist for those opcodes
                     bytes_arg_size = in_struct.size;
 
                 pos += size;
-                log.info("received: {}", .{in_struct});
+                log.debug("received: {}", .{in_struct});
                 setArg(&args, &arg_n, in_struct.*);
-            } else {
-                log.info("no body expected", .{});
             }
 
-            const count = comptime opcode.nFiles();
+            const count = comptime opcode.stringArgs();
 
             if (count > 0) {
                 // TODO: setxattr works differently
                 // TODO: do i have to deal with offset parameters?
                 if (count == 1) {
-                    const filename = std.mem.span(@as([*:0]const u8, message[pos .. message.len - 1 :0]));
-                    log.info("received filename: \"{s}\"", .{filename});
-                    setArg(&args, &arg_n, filename);
-                    pos += filename.len + 1;
-                    log.info("skipping {} extra bytes", .{message.len - pos});
+                    const string = std.mem.span(@as([*:0]const u8, message[pos .. message.len - 1 :0]));
+                    log.debug("received string argumnet: \"{s}\"", .{string});
+                    setArg(&args, &arg_n, string);
+                    pos += string.len + 1;
+                    log.debug("skipping {} extra bytes", .{message.len - pos});
                     pos = message.len;
                 } else {
                     // TODO: the go code seems to split on 0-bytes, which makes sense except
@@ -450,12 +495,12 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
                 }
             }
 
-            if (comptime opcode.bytesIn()) {
+            if (comptime opcode.bytesArg()) {
                 const bytes = message[pos..][0..bytes_arg_size];
-                log.info("received bytes", .{});
+                log.debug("received bytes", .{});
                 setArg(&args, &arg_n, bytes);
                 pos += bytes_arg_size;
-                log.info("skipping {} extra bytes", .{message.len - pos});
+                log.debug("skipping {} extra bytes", .{message.len - pos});
                 pos = message.len;
             }
 
@@ -487,6 +532,7 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
                     out.setErr(err);
                 },
                 .out => |ret| {
+                    log.debug("sending: {any}", .{ret});
                     // XXX: ugh horrible hack.
                     switch (OutStruct) {
                         []const u8 => out.appendBytes(ret) catch @panic("bytes too long"),
@@ -500,7 +546,7 @@ pub fn recv1(dev: *Dev, callbacks: anytype) !void {
                 },
             }
 
-            if (out.isErr()) log.warn("responding to kernel with error: {s}", .{@tagName(out.header().@"error")});
+            if (out.isErr()) log.warn("sending error: {s}", .{@tagName(out.header().@"error")});
 
             if (opcode.OutStruct() != null)
                 try dev.send(out);

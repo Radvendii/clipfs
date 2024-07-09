@@ -312,13 +312,8 @@ pub fn create(this: *PrivateData, _: k.InHeader, create_in: k.CreateIn, _: [:0]c
     } };
 }
 
-pub fn getxattr(_: *PrivateData, _: k.InHeader, _: k.GetxattrIn, attr: [:0]const u8) !EOr(k.GetxattrOut) {
-    std.debug.print("{s}", .{attr});
+pub fn getxattr(_: *PrivateData, _: k.InHeader, _: k.GetxattrIn, _: [:0]const u8) !EOr(k.GetxattrOut) {
     return .{ .err = .NODATA };
-    // return .{ .err = .OPNOTSUPP };
-    // out.setOutStruct(k.GetxattrOut{
-    //     .size = in.size,
-    // });
 }
 
 pub fn setattr(_: *PrivateData, _: k.InHeader, _: k.SetattrIn) !EOr(k.AttrOut) {
