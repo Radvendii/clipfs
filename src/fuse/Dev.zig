@@ -258,7 +258,7 @@ const InitExchange = struct {
         if (init_in.major < 7) {
             // libfuse doesn't support it, so at least to begin with i'll follow suit
             log.err("unsupported protocol version: {d}.{d}", .{ init_in.major, init_in.minor });
-            return error.UnsupportedVersion;
+            return .{ .err = .PROTO };
         }
 
         // man fuse.4 (section FUSE_INIT)
@@ -525,6 +525,10 @@ pub fn outStructSize(comptime Data: type, minor_version: u32) usize {
             0...8 => k.EntryOut.COMPAT_SIZE,
             else => @sizeOf(Data),
         },
+        k.StatfsOut => return switch (minor_version) {
+            0...3 => k.StatfsOut.COMPAT_SIZE,
+            else => @sizeOf(Data),
+        },
         k.OpenOut,
         k.Dirent,
         k.DirentPlus,
@@ -536,7 +540,6 @@ pub fn outStructSize(comptime Data: type, minor_version: u32) usize {
         k.CreateOut => @compileError(@typeName(Data) ++ " does not have an independent compat size. You must add it's components separately"),
 
         k.StatxOut,
-        k.StatfsOut,
         k.LkOut,
         k.BmapOut,
         k.IoctlOut,

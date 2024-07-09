@@ -49,6 +49,7 @@
 
 ### further work
 
+- [ ] consider using /dev/fd/ file descriptor with already mounted /dev/fuse so it's an entirely separate process opening and mounting /dev/fuse
 - [ ] more extensive x11/magic/fuse bindings
 - [ ] /dev/fuse 
   - https://richiejp.com/zig-fuse-two
@@ -80,6 +81,8 @@
 - https://stackoverflow.com/questions/11071996/what-are-inode-generation-numbers
 - https://github.com/richiejp/m/tree/main
 - Read the kernel source code.
+- https://github.com/hinshun/hellofs
+- fusermount doesn't check that it can write to `_FUSE_COMMFD` before mounting...
 
 ### interrupts
 

@@ -130,15 +130,25 @@ pub const Statx = extern struct {
     __spare2: [14]u64 = zeroes([14]u64),
 };
 pub const Kstatfs = extern struct {
+    /// Optimal transfer block size
     blocks: u64,
+    /// Free blocks in filesystem
     bfree: u64,
+    /// Free blocks available to unprivileged user
     bavail: u64,
+    /// Total inodes in filesystem
     files: u64,
+    /// Free inodes in filesystem
     ffree: u64,
+    /// Optimal transerr block sizze
     bsize: u32,
+    /// Maximum length of filenames
     namelen: u32,
+    /// Fragment size (since Linux 2.6)
     frsize: u32,
+    /// Mount flags of filesystem (since Linux 2.6)
     padding: u32 = zeroes(u32),
+    /// Padding bytes reserved for future use
     spare: [6]u32 = zeroes([6]u32),
 };
 pub const FileLock = extern struct {

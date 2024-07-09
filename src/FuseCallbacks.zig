@@ -27,6 +27,20 @@ generation: u64 = 1,
 allocator: std.mem.Allocator,
 clipboard: *Clipboard,
 
+pub fn statfs(_: *PrivateData, _: k.InHeader) !EOr(k.StatfsOut) {
+    // XXX: i'm making shit up
+    return .{ .out = k.StatfsOut{ .st = k.Kstatfs{
+        .blocks = k.MIN_READ_BUFFER,
+        .bfree = 1,
+        .bavail = 1,
+        .files = 10,
+        .ffree = 10,
+        .bsize = 100,
+        .namelen = 200,
+        .frsize = 10,
+    } } };
+}
+
 pub fn getattr(_: *PrivateData, in: k.InHeader, getattr_in: k.GetattrIn) !EOr(k.AttrOut) {
     _ = getattr_in; // autofix
     // std.debug.assert(getattr_in.getattr_flags.fh == false);
@@ -47,8 +61,8 @@ pub fn getattr(_: *PrivateData, in: k.InHeader, getattr_in: k.GetattrIn) !EOr(k.
                 .ctimensec = 0,
                 .mode = std.posix.S.IFDIR | 0o0755,
                 .nlink = 1,
-                .uid = 0,
-                .gid = 0,
+                .uid = std.os.linux.geteuid(),
+                .gid = std.os.linux.getegid(),
                 .rdev = 0,
                 .blksize = 0,
                 .flags = .{
@@ -72,8 +86,8 @@ pub fn getattr(_: *PrivateData, in: k.InHeader, getattr_in: k.GetattrIn) !EOr(k.
                 .ctimensec = 0,
                 .mode = std.posix.S.IFREG | 0o0755,
                 .nlink = 1,
-                .uid = 0,
-                .gid = 0,
+                .uid = std.os.linux.geteuid(),
+                .gid = std.os.linux.getegid(),
                 .rdev = 0,
                 .blksize = 0,
                 .flags = .{
@@ -97,8 +111,8 @@ pub fn getattr(_: *PrivateData, in: k.InHeader, getattr_in: k.GetattrIn) !EOr(k.
                 .ctimensec = 0,
                 .mode = std.posix.S.IFREG | 0o0755,
                 .nlink = 1,
-                .uid = 0,
-                .gid = 0,
+                .uid = std.os.linux.geteuid(),
+                .gid = std.os.linux.getegid(),
                 .rdev = 0,
                 .blksize = 0,
                 .flags = .{
@@ -160,8 +174,8 @@ pub fn readdirplus(_: *PrivateData, in: k.InHeader, readdirplus_in: k.ReadIn, ou
                     .ctimensec = 0,
                     .mode = std.posix.S.IFREG | 0o0755,
                     .nlink = 1,
-                    .uid = 0,
-                    .gid = 0,
+                    .uid = std.os.linux.geteuid(),
+                    .gid = std.os.linux.getegid(),
                     .rdev = 0,
                     .blksize = 0,
                     .flags = .{
@@ -219,8 +233,8 @@ pub fn lookup(_: *PrivateData, in: k.InHeader, filename: [:0]const u8) !EOr(k.En
                 .ctimensec = 0,
                 .mode = std.posix.S.IFREG | 0o0755,
                 .nlink = 1,
-                .uid = 0,
-                .gid = 0,
+                .uid = std.os.linux.geteuid(),
+                .gid = std.os.linux.getegid(),
                 .rdev = 0,
                 .blksize = 0,
                 .flags = .{
@@ -281,8 +295,8 @@ pub fn create(this: *PrivateData, _: k.InHeader, create_in: k.CreateIn, _: [:0]c
                 .ctimensec = 0,
                 .mode = std.posix.S.IFREG | 0o0755,
                 .nlink = 1,
-                .uid = 0,
-                .gid = 0,
+                .uid = std.os.linux.geteuid(),
+                .gid = std.os.linux.getegid(),
                 .rdev = 0,
                 .blksize = 0,
                 .flags = .{
@@ -300,7 +314,8 @@ pub fn create(this: *PrivateData, _: k.InHeader, create_in: k.CreateIn, _: [:0]c
 
 pub fn getxattr(_: *PrivateData, _: k.InHeader, _: k.GetxattrIn, attr: [:0]const u8) !EOr(k.GetxattrOut) {
     std.debug.print("{s}", .{attr});
-    return .{ .err = .OPNOTSUPP };
+    return .{ .err = .NODATA };
+    // return .{ .err = .OPNOTSUPP };
     // out.setOutStruct(k.GetxattrOut{
     //     .size = in.size,
     // });
@@ -322,8 +337,8 @@ pub fn setattr(_: *PrivateData, _: k.InHeader, _: k.SetattrIn) !EOr(k.AttrOut) {
             .ctimensec = 0,
             .mode = std.posix.S.IFREG | 0o0755,
             .nlink = 1,
-            .uid = 0,
-            .gid = 0,
+            .uid = std.os.linux.geteuid(),
+            .gid = std.os.linux.getegid(),
             .rdev = 0,
             .blksize = 0,
             .flags = .{

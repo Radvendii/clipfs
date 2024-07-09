@@ -33,6 +33,7 @@
         zls
 
         # we have to be careful not to shadow the installed suid fusermount3
+        # TODO: upstream
         (pkgs.fuse3.overrideAttrs { 
           outputs = [ "out" "dev" "common" ]; 
           propagatedBuildOutputs = [];
